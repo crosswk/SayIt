@@ -1,0 +1,16 @@
+.git
+.venv*
+.pytest_cache
+.kiro
+__pycache__
+runtime
+certs
+releases
+pretrained_models
+SayIt-Frontend-main
+TODO*.md
+docs
+scripts
+*.log
+*.sqlite3*
+*.tar.gz

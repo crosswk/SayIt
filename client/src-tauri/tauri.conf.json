@@ -1,0 +1,72 @@
+{
+  "productName": "SayIt",
+  "version": "0.0.3",
+  "identifier": "com.sayit.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "SayIt",
+        "width": 1120,
+        "height": 768,
+        "minWidth": 800,
+        "minHeight": 600,
+        "decorations": false,
+        "center": true,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "msi"
+    ],
+    "resources": [
+      "resources/*"
+    ],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png",
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png"
+    ],
+    "shortDescription": "语音输入，AI 润色",
+    "longDescription": "SayIt - 按住说话，松开输入。支持语音识别和 AI 文本润色，让语音输入更高效。",
+    "copyright": "© 2026 Liu Qianglong & Claude",
+    "category": "Productivity",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "languages": [
+          "SimpChinese"
+        ],
+        "installerIcon": "icons/icon.ico"
+      },
+      "wix": {
+        "language": [
+          "zh-CN",
+          "en-US"
+        ]
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}

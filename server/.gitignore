@@ -1,0 +1,52 @@
+# Secrets & local config
+.env
+config.yaml
+
+# Internal dev docs (not for public)
+docs/
+
+# Dev scripts with server-specific info
+scripts/
+
+# Internal benchmarks & test files
+benchmarks/
+mytestwav.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv*/
+.pytest_cache/
+
+# Models (too large for git, download separately)
+pretrained_models/
+
+# Runtime data (logs, db, recordings)
+runtime/
+
+# Desktop app releases (distribute via GitHub Releases)
+releases/win32/
+
+# TLS dev certs (regenerate with openssl)
+certs/
+
+# Node
+node_modules/
+package-lock.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / tools
+.kiro/
+.vscode/
+*.swp
+*.swo
+*.bak
+
+# SQLite WAL/SHM (runtime artifacts)
+*.sqlite3-wal
+*.sqlite3-shm

@@ -1,0 +1,52 @@
+# ── Secrets ──
+.env
+.env.local
+.env.*.local
+config.yaml
+
+# ── Development-only (not for open source) ──
+dev-docs/
+dev-scripts/
+sayit说话波形图效果.html
+
+# ── Server dev artifacts ──
+server/.kiro/
+server/.pytest_cache/
+server/.ruff_cache/
+server/docs/
+server/scripts/
+server/benchmarks/
+server/mytestwav.txt
+
+# ── Client dev artifacts ──
+client/scripts/
+client/dist/
+
+# ── Kiro IDE ──
+.kiro/
+
+# ── Node ──
+node_modules/
+
+# ── Rust build output ──
+target/
+
+# ── Python ──
+__pycache__/
+*.pyc
+.venv*/
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── IDE ──
+.vscode/
+.idea/
+
+# ── Tauri dev artifacts ──
+*.blockmap
+
+# ── Logs & runtime ──
+*.log
+runtime/

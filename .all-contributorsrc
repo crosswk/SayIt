@@ -1,0 +1,23 @@
+{
+  "projectName": "SayIt",
+  "projectOwner": "crosswk",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": ["README.md"],
+  "contributors": [
+    {
+      "login": "crosswk",
+      "name": "crosswk",
+      "avatar_url": "https://github.com/crosswk.png",
+      "profile": "https://github.com/crosswk",
+      "contributions": ["code", "doc", "design", "ideas", "maintenance"]
+    },
+    {
+      "login": "claude-ai",
+      "name": "Claude (Anthropic)",
+      "avatar_url": "https://avatars.githubusercontent.com/u/76263028",
+      "profile": "https://claude.ai",
+      "contributions": ["code", "doc"]
+    }
+  ]
+}

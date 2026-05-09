@@ -1,0 +1,251 @@
+{
+  "exportedAt": "2026-04-27T01:45:59.828Z",
+  "appSettings": {
+    "activePresetId": "intent",
+    "aiEnabled": true,
+    "hotwordLearning": {
+      "enabled": true,
+      "entries": [
+        {
+          "appIds": [],
+          "correctionCount": 1,
+          "distinctDayCount": 1,
+          "distinctSessionCount": 2,
+          "evidenceCount": 3,
+          "firstSeenAt": 1773027243499,
+          "lastSeenAt": 1773032775845,
+          "normalizedWord": "asr",
+          "score": 0.3293333333333333,
+          "status": "candidate",
+          "word": "ASR"
+        },
+        {
+          "appIds": [],
+          "correctionCount": 1,
+          "distinctDayCount": 1,
+          "distinctSessionCount": 1,
+          "evidenceCount": 2,
+          "firstSeenAt": 1773033166802,
+          "lastSeenAt": 1773033166802,
+          "normalizedWord": "few-shot",
+          "score": 0.2613333333333333,
+          "status": "candidate",
+          "word": "few-shot"
+        },
+        {
+          "appIds": [],
+          "correctionCount": 0,
+          "distinctDayCount": 1,
+          "distinctSessionCount": 1,
+          "evidenceCount": 1,
+          "firstSeenAt": 1773022721882,
+          "lastSeenAt": 1773022721882,
+          "normalizedWord": "electron",
+          "score": 0.13466666666666666,
+          "status": "candidate",
+          "word": "Electron"
+        }
+      ]
+    },
+    "overlayShowDuration": true,
+    "overlayWaveTheme": "black-blue",
+    "selectedMic": "",
+    "shortcutHandsFree": "Alt+L",
+    "shortcutKey": "Alt",
+    "shortcutPTT": "AltRight",
+    "shortcutPTTCombo": "Alt+Q",
+    "styleProfile": {
+      "byApp": {},
+      "enabled": true,
+      "overall": {
+        "avgChars": 62.20833333333335,
+        "avgSentenceLength": 19.271875,
+        "casualScore": 0.06333333333333337,
+        "conciseScore": 0.7737499999999997,
+        "formalScore": 0.23,
+        "lastUpdatedAt": 1773033427202,
+        "sampleCount": 24,
+        "structuredScore": 0.14333333333333334,
+        "technicalScore": 0.075
+      }
+    },
+    "autoLaunch": false
+  },
+  "promptPresets": [
+    {
+      "id": "faithful",
+      "name": "忠实校对",
+      "systemPrompt": "你是语音转文字的校对助手。输入是 ASR 语音识别的原始转写，你的任务是修正错误并清理格式，尽量保留用户的原始表达和语序。\n核心原则：忠实还原用户想说的话，修正识别错误，清除语音噪声，但不改写句式。\n\n规则：\n1. 移除无意义的口语填充词（嗯、啊、那个、就是、就是说）和纯重复。\n2. 修正明显的识别错误：错别字、同音字、音近字、专有名词、英文大小写。\n3. 添加标点符号，必要时分段。中英文混合保留合理空格。\n4. 保留用户的句式、语气词（吧、呢、啊用于句尾表语气时保留）和表达顺序，不要改写为书面语。\n5. 不要回答、解释、总结或续写文本中的内容。\n\n只输出校对后的文本。",
+      "userPrompt": "校对以下语音转录文本：",
+      "builtin": true
+    },
+    {
+      "id": "intent",
+      "name": "意图整理",
+      "systemPrompt": "\n你是语音文本精炼助手。输入是 ASR 语音识别的原始转写，你的任务是将其清洗为逻辑清晰、准确且简洁的干净文本。\n\n【核心原则】\n1. 忠实原文：最大限度保留用户的原始叙述和词语习惯。仅作必要的逻辑梳理和适度修饰，严禁过度润色、改写或替换原文中表意清晰的句子。\n2. 提纯去噪：保留用户全部有效信息，只清除语音噪声和识别错误。\n\n【处理规则】\n1. 清除冗余：移除口语填充词（如：嗯、啊、那个、就是说、然后呢）以及无意义的断句、重复和犹豫。\n2. 识别修正：准确识别自我修正语境（如：\"不对\"、\"不是\"、\"应该是\"、\"改到\"），以后续最终表达为准，删除前序错误表述。\n3. 纠正错漏（强化中英保留）：修正明显的语音识别错误。\n   - 严禁任何形式的翻译行为：听到英文必须保留英文，绝对不能将其翻译成中文（例如：严禁把 \"table\" 改成 \"表格\"，把 \"bug\" 改成 \"缺陷\" 等）。\n   - 针对中英文夹杂情况，结合上下文纠正 ASR 的英文拼写和大小写错误，但切记保持原始语种完全不变。\n4. 规范排版：添加准确的标点符号。中英文混合时保留合理空格。\n5. 结构化输出：只要检测到文本中存在多点陈述、并列逻辑或步骤说明（不仅限于听到“第一、第二”，还包括“几个方面”、“另外”、“还有”等隐含并列关系），必须主动地将其转换为有序列表。\n   - 层级规范：一级大点使用阿拉伯数字编号“1. 2. 3.”；若大点下存在展开的小点，使用英文字母小写编号“a. b. c.”进行嵌套，并在字母前增加缩进（空格），确保排版错落有致。\n\n【约束】\n- 绝对保留用户的原始语态：严禁将用户的祈使句、请求或疑问句篡改为第三方视角的客观陈述或总结。\n- 绝对不添加原文没有的内容，不改变用户核心语义。\n- 绝对不回答、解释、总结或续写文本中提到的问题。\n\n【示例】\n输入：嗯那个明天的会议改到周二了不对是周三下午两点记得带资料\n输出：明天的会议改到周三下午两点，记得带资料。\n\n输入：我觉得这个方案有这么几个大点啊，第一是要优化性能，里面包括 web 端的加载速度要提升还有后端 api 的响应要缩短，第二就是修复之前的把个，第三个呢是补充文档，文档要有 user manual 和开发指南。\n输出：\n我觉得这个方案有这么几个大点：\n1. 优化性能\n  a. 提升 Web 端的加载速度\n  b. 缩短后端 API 响应\n2. 修复之前的 bug\n3. 补充文档\n  a. User manual\n  b. 开发指南\n\n只输出精炼后的文本。",
+      "userPrompt": "整理以下语音转录文本：",
+      "builtin": true
+    }
+  ],
+  "appPromptRules": [
+    {
+      "id": "teams",
+      "appId": "teams",
+      "name": "Teams",
+      "builtin": true,
+      "enabled": true,
+      "priority": 100,
+      "presetId": "intent",
+      "promptAppend": "适合即时协作聊天。优先输出可以直接发送的短消息，语气自然、清晰、简洁，避免邮件腔。",
+      "matcher": {
+        "processNames": [
+          "teams.exe",
+          "ms-teams.exe"
+        ],
+        "windowTitleIncludes": [
+          "teams"
+        ],
+        "windowClasses": [],
+        "automationIds": []
+      }
+    },
+    {
+      "id": "outlook",
+      "appId": "outlook",
+      "name": "Outlook",
+      "builtin": true,
+      "enabled": true,
+      "priority": 95,
+      "presetId": "intent",
+      "promptAppend": "适合工作邮件草稿。语气正式、完整，必要时自然分段，但不要编造收件人、称呼或任何事实。",
+      "matcher": {
+        "processNames": [
+          "outlook.exe",
+          "olk.exe"
+        ],
+        "windowTitleIncludes": [
+          "outlook"
+        ],
+        "windowClasses": [],
+        "automationIds": []
+      }
+    },
+    {
+      "id": "kiro",
+      "appId": "kiro",
+      "name": "Kiro",
+      "builtin": true,
+      "enabled": true,
+      "priority": 90,
+      "presetId": "faithful",
+      "promptAppend": "面向开发工具输入。保留代码、命令、文件名、路径、英文标识符，不要把技术词改写成普通中文。",
+      "matcher": {
+        "processNames": [
+          "kiro.exe"
+        ],
+        "windowTitleIncludes": [
+          "kiro"
+        ],
+        "windowClasses": [],
+        "automationIds": []
+      }
+    },
+    {
+      "id": "vscode",
+      "appId": "vscode",
+      "name": "VSCode",
+      "builtin": true,
+      "enabled": true,
+      "priority": 85,
+      "presetId": "faithful",
+      "promptAppend": "面向 VSCode 编辑区。保留代码、命令、文件名、API、英文术语，不要过度润色技术内容。",
+      "matcher": {
+        "processNames": [
+          "code.exe"
+        ],
+        "windowTitleIncludes": [
+          "visual studio code",
+          "vscode"
+        ],
+        "windowClasses": [],
+        "automationIds": []
+      }
+    },
+    {
+      "id": "cursor",
+      "appId": "cursor",
+      "name": "Cursor",
+      "builtin": true,
+      "enabled": true,
+      "priority": 80,
+      "presetId": "faithful",
+      "promptAppend": "面向 Cursor 编辑区。保留代码、命令、路径、技术名词和英文标识符，不要擅自解释或补全技术内容。",
+      "matcher": {
+        "processNames": [
+          "cursor.exe"
+        ],
+        "windowTitleIncludes": [
+          "cursor"
+        ],
+        "windowClasses": [],
+        "automationIds": []
+      }
+    }
+  ],
+  "userStats": {
+    "totalWords": 66803,
+    "totalSessions": 942,
+    "domainWords": {
+      "Codex": 2158,
+      "Cursor.exe": 5,
+      "Doubao": 71,
+      "Doubao.exe": 691,
+      "Everything": 11,
+      "Kiro": 5106,
+      "Kiro.exe": 16556,
+      "LockApp.exe": 105,
+      "MobaXterm.exe": 3295,
+      "OUTLOOK": 232,
+      "OUTLOOK.EXE": 210,
+      "Typeless.exe": 5,
+      "chrome": 1113,
+      "chrome.exe": 2125,
+      "electron": 56,
+      "ms-teams": 181,
+      "ms-teams.exe": 408,
+      "msedge": 606,
+      "msedgewebview2": 82,
+      "notepad": 9263,
+      "notepad++.exe": 857,
+      "notepad.exe": 23455,
+      "picpick": 13,
+      "sayit.exe": 92,
+      "unknown": 107
+    },
+    "appUsageCount": {
+      "Codex": 19,
+      "Cursor.exe": 1,
+      "Doubao": 1,
+      "Doubao.exe": 14,
+      "Everything": 1,
+      "Kiro": 41,
+      "Kiro.exe": 163,
+      "LockApp.exe": 1,
+      "MobaXterm.exe": 42,
+      "OUTLOOK.EXE": 3,
+      "Typeless.exe": 1,
+      "chrome": 13,
+      "chrome.exe": 42,
+      "electron": 2,
+      "ms-teams": 5,
+      "ms-teams.exe": 11,
+      "msedge": 3,
+      "notepad": 80,
+      "notepad++.exe": 3,
+      "notepad.exe": 486,
+      "sayit.exe": 10
+    },
+    "firstUsedAt": 1773150472736,
+    "lastUsedAt": 1777115142486
+  }
+}

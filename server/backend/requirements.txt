@@ -1,0 +1,11 @@
+fastapi==0.135.2
+uvicorn==0.42.0
+websockets==16.0
+python-dotenv==1.2.2
+PyYAML==6.0.3
+httpx==0.28.1
+numpy==2.2.6
+psutil==7.2.2
+torchaudio==2.9.1
+qwen-asr[vllm]==0.0.6
+funasr==1.3.1

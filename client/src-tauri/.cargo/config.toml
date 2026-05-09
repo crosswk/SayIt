@@ -1,0 +1,3 @@
+# sherpa-onnx 静态库需要额外的 Windows 系统库
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=advapi32.lib"]

@@ -1,0 +1,209 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /*
+   * CSS 变量 fallback（JS 主题系统未加载前的默认值）
+   * 运行时由 src/themes/ 的 applyTheme() 覆盖
+   */
+  :root {
+    /* 基础色 — 与 light.ts 保持一致 */
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+    --radius: 0.5rem;
+
+    /* 区域色 */
+    --sidebar-bg: 0 0% 100%;
+    --sidebar-border: 240 5.9% 90%;
+    --sidebar-item-active-bg: 240 4.8% 95.9%;
+    --sidebar-item-hover-bg: 240 4.8% 97.9%;
+    --sidebar-text: 240 4% 46%;
+    --sidebar-text-active: 240 10% 3.9%;
+    --titlebar-bg: 0 0% 100%;
+    --titlebar-text: 240 4% 46%;
+    --titlebar-close-hover-bg: 0 84% 60%;
+    --titlebar-close-hover-text: 0 0% 100%;
+
+    /* 表单控件 */
+    --input-bg: 0 0% 100%;
+    --input-border: 240 5.9% 90%;
+    --input-focus-border: 240 5.9% 10%;
+    --input-focus-ring: 240 5.9% 10%;
+    --input-placeholder: 240 4% 65%;
+
+    /* 状态色 */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+
+    /* Overlay 专用变量（独立黑底窗口） */
+    --overlay-bg: #0b0b0c;
+    --overlay-text: #ffffff;
+    --overlay-text-muted: #999999;
+    --overlay-text-dim: #666666;
+    --overlay-border: rgba(255, 255, 255, 0.1);
+    --overlay-surface: rgba(255, 255, 255, 0.03);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  /* 全局 focus-visible 指示器 — 键盘用户可见焦点环 */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+
+  /* 已有 ring 样式的组件（如 shadcn Button）不重复添加 outline */
+  [class*="focus-visible:ring"]:focus-visible {
+    outline: none;
+  }
+
+  /* 排版层次：页面标题 */
+  h1 {
+    @apply tracking-tight;
+  }
+
+  body {
+    @apply bg-background text-foreground text-base leading-relaxed;
+    font-family: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+    overflow: hidden;
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+}
+
+/* 自定义滚动条样式 */
+@layer utilities {
+  /* Webkit 浏览器（Chrome, Safari, Edge） */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* Firefox */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+}
+
+/* Overlay waiting dot pulse */
+@keyframes dot-pulse {
+  0%, 100% { opacity: 0.2; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.8); }
+}
+
+/* Overlay waiting pulse animation */
+@keyframes pulse-slide {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(200%); }
+  100% { transform: translateX(-100%); }
+}
+
+/* 进度条动画 */
+@keyframes progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(250%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+/* 进度条填充动画 - 从左到右 */
+@keyframes progress-fill {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+/* 入场动画 */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-scale {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* 展开/折叠动画 */
+@keyframes expand {
+  from { grid-template-rows: 0fr; }
+  to { grid-template-rows: 1fr; }
+}
+
+@keyframes collapse {
+  from { grid-template-rows: 1fr; }
+  to { grid-template-rows: 0fr; }
+}
+
+/* 工具类 */
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in 250ms ease-out both;
+  }
+
+  .animate-fade-in-scale {
+    animation: fade-in-scale 200ms ease-out both;
+  }
+
+  /* 交错入场延迟 */
+  .delay-75 { animation-delay: 75ms; }
+  .delay-150 { animation-delay: 150ms; }
+}
+
+/* prefers-reduced-motion：尊重用户系统设置 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

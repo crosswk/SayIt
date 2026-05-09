@@ -1,0 +1,108 @@
+# =============================================================================
+# SayIt Configuration
+# =============================================================================
+# Secrets (API keys, passwords) → .env
+# Everything else → this file
+# =============================================================================
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins:                      # Allowed CORS origins
+    - "*"                            # Default: allow all. Restrict in production.
+
+# HTTPS reverse proxy (when not using ALB/CDN)
+gateway:
+  host: "0.0.0.0"
+  port: 8443
+  backend_target: "http://127.0.0.1:8000"
+  tls_key_file: "certs/dev.key"
+  tls_cert_file: "certs/dev.crt"
+
+paths:
+  prompt_dir: "prompts"
+  releases_dir: "releases"
+
+# --- Speech Recognition ---
+asr:
+  engine: "qwen3"                    # qwen3 / firered
+  model: "Qwen/Qwen3-ASR-1.7B"
+  device: "cuda:0"
+  language: "Chinese"                # Chinese / English / Cantonese
+  itn: true                          # Inverse text normalization
+  vllm_gpu_util: 0.5
+  vllm_max_model_len: 8192
+  max_concurrency: 1
+  batch_max_size: 32
+  batch_wait_ms: 60
+  firered:                           # Only used when engine = "firered"
+    model_dir: "pretrained_models"
+
+vad:
+  model: "fsmn-vad"
+  max_single_segment_time: 30000     # ms
+
+# --- LLM Text Polishing ---
+# Define all available providers below, then choose which one to use
+# for desktop and web_demo. API keys go in .env file.
+llm:
+  desktop: "openai"                  # Provider for desktop client
+  web_demo: "groq"                   # Provider for web demo (empty = disabled)
+
+  providers:
+    azure:
+      deployment: "gpt-4o"
+      api_version: "2024-12-01-preview"
+      timeout_sec: 15
+    openai:
+      base_url: "https://api.openai.com"
+      model: "gpt-4o-mini"
+      timeout_sec: 15
+    groq:
+      base_url: "https://api.groq.com/openai"
+      model: "qwen/qwen3-32b"
+      timeout_sec: 15
+    ollama:
+      url: "http://127.0.0.1:11434/api/generate"
+      model: "qwen2.5:7b"
+      timeout_sec: 15
+
+# --- Landing Page ---
+public_site:
+  app_name: "SayIt"
+  headline: "随口说，出色写。"
+  subheadline: "用说话代替打字，AI 实时把口语变成可以直接用的书面表达。"
+  download_label: "下载 Windows 客户端"
+  download_platform: "win32"
+  download_arch: "x64"
+
+# --- Browser Demo ---
+web_demo:
+  enabled: true
+  max_duration_sec: 600              # Max recording length per session (sec)
+  max_concurrency_per_ip: 3
+
+# --- Admin Dashboard ---
+# Password in .env (SAYIT_ADMIN_PASSWORD)
+admin:
+  enabled: true
+  username: "admin"
+
+# --- Logging ---
+logging:
+  level: "INFO"                      # DEBUG / INFO / WARNING / ERROR
+  debug_asr: false                   # Log raw ASR input/output
+  debug_llm: false                   # Log raw LLM input/output
+  file: "runtime/logs/sayit.log"
+  retention_days: 14
+  slow_asr_ms: 5000                  # Warn when ASR takes longer
+  slow_llm_ms: 8000                  # Warn when LLM takes longer
+
+# --- Telemetry ---
+telemetry:
+  enabled: true
+  db: "sqlite"                       # sqlite / postgresql
+  db_path: "runtime/telemetry/sayit.sqlite3"
+  collect_window_title: true
+  collect_exe_path: true
+  node_id: "single-node-01"

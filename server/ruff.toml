@@ -1,0 +1,13 @@
+target-version = "py310"
+line-length = 120
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "B008",   # function call in default argument (FastAPI Depends)
+    "SIM108", # ternary operator — readability preference
+]
+
+[lint.isort]
+known-first-party = ["backend"]

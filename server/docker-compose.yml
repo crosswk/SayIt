@@ -1,0 +1,49 @@
+# =============================================================================
+# SayIt — Docker Compose
+# =============================================================================
+# Zero-config startup:
+#   docker compose up -d --build
+#   → Pure ASR mode, no LLM. Access at https://localhost:8443
+#
+# With LLM polishing:
+#   SAYIT_OPENAI_API_KEY=sk-xxx docker compose up -d --build
+#   → Automatically enables OpenAI for text polishing
+#
+# Full .env example: see .env.example
+# =============================================================================
+
+services:
+  sayit:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu124
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    ports:
+      - "${SAYIT_HTTPS_PORT:-8443}:${SAYIT_HTTPS_PORT:-8443}"   # HTTPS (browser demo)
+      - "${SAYIT_HTTP_PORT:-8000}:${SAYIT_HTTP_PORT:-8000}"      # HTTP  (desktop client / reverse proxy)
+    volumes:
+      - sayit-data:/app/runtime
+      # Optional overrides — uncomment to customize:
+      # - ./config.yaml:/app/config.yaml:ro       # Advanced settings
+      # - ./prompts:/app/prompts:ro                # Custom LLM prompts
+      # - ./certs:/app/certs:ro                    # Custom TLS certificates
+      # - ./releases:/app/releases:ro              # Desktop client auto-update files
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    shm_size: "2gb"
+
+volumes:
+  sayit-data:

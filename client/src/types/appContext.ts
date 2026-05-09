@@ -1,0 +1,29 @@
+export interface ActiveAppContext {
+  reason?: string
+  timestamp?: number
+  hwnd?: string
+  pid?: number
+  tid?: number
+  processName?: string
+  exePath?: string
+  windowTitle?: string
+  windowClass?: string
+  focusHwnd?: string
+  caretHwnd?: string
+  hasCaret?: boolean
+  focusClass?: string
+  controlType?: string
+  automationId?: string
+  focusedName?: string
+  automationProcessId?: number
+  isValuePatternAvailable?: boolean
+  isTextPatternAvailable?: boolean
+  isTextPattern2Available?: boolean
+  isTextEditPatternAvailable?: boolean
+  isKeyboardFocusable?: boolean
+  hasKeyboardFocus?: boolean
+  isEnabled?: boolean
+  isOffscreen?: boolean
+  isReadOnly?: boolean
+  isCurrentAppProcess?: boolean
+}
