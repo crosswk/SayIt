@@ -3763,7 +3763,7 @@ dependencies = [
 
 [[package]]
 name = "sayit"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "base64 0.22.1",
  "bzip2",
