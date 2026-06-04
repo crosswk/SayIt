@@ -1,6 +1,9 @@
 import * as bridge from '@/services/bridge'
 import { cn } from '@/lib/utils'
-import { resolveAsrDisplayModel } from '@/lib/asrModels'
+import { resolveAsrDisplayModel, isQwenOmniProvider, resolveQwenOmniModel } from '@/lib/asrModels'
+import { uint8ArrayToBase64 } from '@/lib/encoding'
+import { getWorkMode } from '@/services/transcription'
+import type { WorkMode } from '@/services/transcription'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Download, Search, Check, FolderOpen } from 'lucide-react'
@@ -34,6 +37,264 @@ import {
 } from '@/services/hotwords/model'
 
 const HISTORY_PAGE_SIZE = 100
+
+interface ReprocessResult {
+  asrText: string
+  llmText: string
+  asrMs: number
+  llmMs: number
+  durationSec: number
+  asrEngine?: string
+  asrModel?: string
+}
+
+/** 服务器模式重新识别：通过独立 WebSocket 连接，避免干扰全局连接 */
+async function reprocessViaServer(
+  chunk: ArrayBuffer,
+  hotwords: string[],
+  aiEnabled: boolean,
+  systemPrompt: string | undefined,
+  clientMeta: Awaited<ReturnType<typeof bridge.getClientRuntimeInfo>> | null,
+): Promise<ReprocessResult> {
+  const { getWSUrl } = await import('@/services/runtimeConfig')
+  const wsUrl = getWSUrl()
+
+  return new Promise<ReprocessResult>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      try { socket.close() } catch { /* ignore */ }
+      reject(new Error('重新识别超时'))
+    }, 30_000) // ASR 最多 30 秒
+
+    const socket = new WebSocket(wsUrl)
+    socket.binaryType = 'arraybuffer'
+
+    let resolved = false
+
+    socket.onopen = () => {
+      const startMsg: Record<string, unknown> = {
+        cmd: 'start',
+        source: 'history_reprocess',
+        disable_ai: !aiEnabled,
+      }
+      if (aiEnabled && systemPrompt) startMsg.system_prompt = systemPrompt
+      if (clientMeta) {
+        startMsg.client_meta = {
+          user_id: clientMeta.userId,
+          device_id: clientMeta.deviceId,
+          hostname: clientMeta.hostname,
+          client_version: clientMeta.clientVersion,
+          platform: clientMeta.platform,
+          os_version: clientMeta.osVersion,
+          local_ip: clientMeta.localIp,
+          system_locale: clientMeta.systemLocale,
+          cpu_cores: clientMeta.cpuCores,
+          memory_mb: clientMeta.memoryMb,
+        }
+      }
+      if (hotwords.length > 0) startMsg.hotwords = hotwords
+      socket.send(JSON.stringify(startMsg))
+
+      // 分片发送 PCM 数据
+      const CHUNK_SIZE = 32000
+      const totalBytes = chunk.byteLength
+      for (let offset = 0; offset < totalBytes; offset += CHUNK_SIZE) {
+        const end = Math.min(offset + CHUNK_SIZE, totalBytes)
+        socket.send(chunk.slice(offset, end))
+      }
+
+      socket.send(JSON.stringify({ cmd: 'stop' }))
+    }
+
+    socket.onmessage = (ev) => {
+      if (typeof ev.data !== 'string') return
+      try {
+        const msg = JSON.parse(ev.data)
+        if (msg.type === 'final') {
+          resolved = true
+          clearTimeout(timeout)
+          socket.close()
+          resolve({
+            asrText: msg.asr_text || '',
+            llmText: msg.llm_text || '',
+            asrMs: msg.asr_ms || 0,
+            llmMs: msg.llm_ms || 0,
+            durationSec: Number(msg.duration_sec || 0),
+            asrEngine: msg.asr_engine || undefined,
+            asrModel: msg.asr_model || undefined,
+          })
+        } else if (msg.type === 'done' && !resolved) {
+          // 没有 final 就 done 了（后端判定为静音/无结果）
+          resolved = true
+          clearTimeout(timeout)
+          socket.close()
+          resolve({ asrText: '', llmText: '', asrMs: 0, llmMs: 0, durationSec: 0 })
+        } else if (msg.type === 'error') {
+          resolved = true
+          clearTimeout(timeout)
+          socket.close()
+          reject(new Error(msg.message || 'backend error'))
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    socket.onerror = () => {
+      if (!resolved) {
+        resolved = true
+        clearTimeout(timeout)
+        reject(new Error('WebSocket 连接错误'))
+      }
+    }
+
+    socket.onclose = (ev) => {
+      if (!resolved) {
+        resolved = true
+        clearTimeout(timeout)
+        reject(new Error(`WebSocket 连接意外关闭 code=${ev.code}`))
+      }
+    }
+  })
+}
+
+/** 云 API 模式重新识别：调用 cloud_transcribe + 可选 cloud_polish，与 CloudAPIProvider 一致 */
+async function reprocessViaCloudApi(
+  chunk: ArrayBuffer,
+  hotwords: string[],
+  aiEnabled: boolean,
+  systemPrompt: string | undefined,
+): Promise<ReprocessResult> {
+  const durationSec = (chunk.byteLength / 2) / 16000
+  const audioB64 = uint8ArrayToBase64(new Uint8Array(chunk))
+
+  const asrProvider = await getSetting('cloudAsr.provider', 'doubao') as string
+  const isQwenOmni = isQwenOmniProvider(asrProvider)
+  const asrApiKey = await getSetting('cloudAsr.apiKey', '') as string
+  const asrAppId = await getSetting('cloudAsr.appId', '') as string
+  const qwenOmniModel = resolveQwenOmniModel(asrProvider)
+
+  let omniInstructions: string | undefined
+  if (isQwenOmni) {
+    const savedPrompt = await getSetting('cloudAsr.omniSystemPrompt', '') as string
+    omniInstructions = savedPrompt || undefined
+  }
+
+  const asrConfig: Record<string, unknown> = {
+    provider: isQwenOmni ? 'qwen_omni' : asrProvider,
+    api_key: asrApiKey,
+    app_id: asrAppId,
+    ...(isQwenOmni && { extra: { model: qwenOmniModel, instructions: omniInstructions } }),
+  }
+
+  const asrStart = performance.now()
+  const asrResult = await invoke<{ text: string; elapsed_ms: number }>('cloud_transcribe', {
+    request: { audio_b64: audioB64, sample_rate: 16000, asr_config: asrConfig, hotwords },
+  })
+  const asrText = asrResult.text
+  const asrMs = asrResult.elapsed_ms || Math.round(performance.now() - asrStart)
+
+  // Qwen Omni 已内置 AI，无需再校对
+  let llmText = asrText
+  let llmMs = 0
+  if (asrText.trim() && aiEnabled && !isQwenOmni) {
+    const aiProvider = await getSetting('cloudAi.provider', 'openai_compat') as string
+    const aiApiUrl = await getSetting('cloudAi.apiUrl', '') as string
+    const aiApiKey = await getSetting('cloudAi.apiKey', '') as string
+    const aiModel = await getSetting('cloudAi.model', '') as string
+    if (aiApiUrl && aiApiKey && aiModel) {
+      try {
+        const aiResult = await invoke<{ text: string; elapsed_ms: number }>('cloud_polish', {
+          request: {
+            text: asrText,
+            ai_config: { provider: aiProvider, api_url: aiApiUrl, api_key: aiApiKey, model: aiModel },
+            system_prompt: systemPrompt || null,
+          },
+        })
+        llmText = aiResult.text || asrText
+        llmMs = aiResult.elapsed_ms
+      } catch { /* AI 失败时保留 ASR 原文 */ }
+    }
+  }
+
+  return {
+    asrText,
+    llmText,
+    asrMs,
+    llmMs,
+    durationSec,
+    ...(isQwenOmni && { asrEngine: 'qwen_omni', asrModel: qwenOmniModel }),
+  }
+}
+
+/** 本地模式重新识别：调用 local_transcribe + 可选 cloud_polish，与 LocalProvider 一致 */
+async function reprocessViaLocal(
+  chunk: ArrayBuffer,
+  aiEnabled: boolean,
+  systemPrompt: string | undefined,
+): Promise<ReprocessResult> {
+  const durationSec = (chunk.byteLength / 2) / 16000
+  const audioB64 = uint8ArrayToBase64(new Uint8Array(chunk))
+
+  const modelId = await getSetting('localAsr.modelId', 'sensevoice-small') as string
+  const language = await getSetting('localAsr.language', 'auto') as string
+
+  const asrResult = await invoke<{ text: string; elapsed_ms: number }>('local_transcribe', {
+    audioB64, modelId, language,
+  })
+  const asrText = asrResult.text
+  const asrMs = asrResult.elapsed_ms
+
+  let llmText = asrText
+  let llmMs = 0
+  if (asrText.trim() && aiEnabled) {
+    const aiProvider = await getSetting('cloudAi.provider', 'openai_compat') as string
+    const aiApiUrl = await getSetting('cloudAi.apiUrl', '') as string
+    const aiApiKey = await getSetting('cloudAi.apiKey', '') as string
+    const aiModel = await getSetting('cloudAi.model', '') as string
+    if (aiApiUrl && (aiApiKey || aiProvider === 'ollama')) {
+      try {
+        const aiResult = await invoke<{ text: string; elapsed_ms: number }>('cloud_polish', {
+          request: {
+            text: asrText,
+            ai_config: { provider: aiProvider, api_url: aiApiUrl, api_key: aiApiKey, model: aiModel },
+            system_prompt: systemPrompt || null,
+          },
+        })
+        llmText = aiResult.text || asrText
+        llmMs = aiResult.elapsed_ms
+      } catch { /* AI 失败时保留 ASR 原文 */ }
+    }
+  }
+
+  return { asrText, llmText, asrMs, llmMs, durationSec }
+}
+
+/** 重新识别后写回历史记录所需的供应商元数据 */
+async function buildReprocessMetadata(
+  workMode: WorkMode,
+  result: ReprocessResult,
+): Promise<{ asrProvider?: string; aiProvider?: string; aiModel?: string }> {
+  if (workMode === 'cloud_api') {
+    const asrProviderKey = await getSetting('cloudAsr.provider', '') as string
+    const aiProvider = await getSetting('cloudAi.provider', '') as string
+    const aiModel = await getSetting('cloudAi.model', '') as string
+    return {
+      asrProvider: resolveAsrDisplayModel(asrProviderKey),
+      aiProvider: aiProvider || undefined,
+      aiModel: aiModel || undefined,
+    }
+  }
+  if (workMode === 'local') {
+    const modelId = await getSetting('localAsr.modelId', '') as string
+    const aiEnabled = Boolean(await getSetting('aiEnabled', false))
+    const aiProvider = aiEnabled ? await getSetting('cloudAi.provider', '') as string : undefined
+    const aiModel = aiEnabled ? await getSetting('cloudAi.model', '') as string : undefined
+    return { asrProvider: modelId || 'local', aiProvider: aiProvider || undefined, aiModel: aiModel || undefined }
+  }
+  // server
+  return {
+    asrProvider: (result.asrModel || result.asrEngine || 'server').replace(/^.*\//, ''),
+    aiProvider: 'server',
+  }
+}
 
 export default function History() {
   const [records, setRecords] = useState<HistoryRecord[]>([])
@@ -150,114 +411,27 @@ export default function History() {
 
     const clientMeta = await bridge.getClientRuntimeInfo().catch(() => null)
 
-    // 使用独立的 WebSocket 连接进行重新识别，避免干扰 RecorderOrchestrator 的全局连接。
-    const { getWSUrl } = await import('@/services/runtimeConfig')
-    const wsUrl = getWSUrl()
+    // 按用户当前选择的工作模式重新识别，与实时录音保持一致
+    // （此前这里硬编码走服务器模式，导致云 API/本地模式下重新识别被错误地发回服务器）
+    const workMode = getWorkMode()
+    const systemPrompt = aiEnabled ? preset.systemPrompt : undefined
 
-    const result = await new Promise<{ asrText: string; llmText: string; asrMs: number; llmMs: number; durationSec: number; asrEngine?: string; asrModel?: string }>((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        try { socket.close() } catch { /* ignore */ }
-        reject(new Error('重新识别超时'))
-      }, 30_000) // ASR 最多 30 秒
-
-      const socket = new WebSocket(wsUrl)
-      socket.binaryType = 'arraybuffer'
-
-      let resolved = false
-
-      socket.onopen = () => {
-        // 发送 start
-        const startMsg: Record<string, unknown> = {
-          cmd: 'start',
-          source: 'history_reprocess',
-          disable_ai: !aiEnabled,
-        }
-        if (aiEnabled && preset.systemPrompt) startMsg.system_prompt = preset.systemPrompt
-        if (clientMeta) {
-          startMsg.client_meta = {
-            user_id: clientMeta.userId,
-            device_id: clientMeta.deviceId,
-            hostname: clientMeta.hostname,
-            client_version: clientMeta.clientVersion,
-            platform: clientMeta.platform,
-            os_version: clientMeta.osVersion,
-            local_ip: clientMeta.localIp,
-            system_locale: clientMeta.systemLocale,
-            cpu_cores: clientMeta.cpuCores,
-            memory_mb: clientMeta.memoryMb,
-          }
-        }
-        if (hotwords.length > 0) startMsg.hotwords = hotwords
-        socket.send(JSON.stringify(startMsg))
-
-        // 分片发送 PCM 数据
-        const CHUNK_SIZE = 32000
-        const totalBytes = chunk.byteLength
-        for (let offset = 0; offset < totalBytes; offset += CHUNK_SIZE) {
-          const end = Math.min(offset + CHUNK_SIZE, totalBytes)
-          socket.send(chunk.slice(offset, end))
-        }
-
-        // 发送 stop
-        socket.send(JSON.stringify({ cmd: 'stop' }))
-      }
-
-      socket.onmessage = (ev) => {
-        if (typeof ev.data !== 'string') return
-        try {
-          const msg = JSON.parse(ev.data)
-          console.log('[reprocess-diag] ws message:', msg.type, msg)
-          if (msg.type === 'final') {
-            resolved = true
-            clearTimeout(timeout)
-            socket.close()
-            resolve({
-              asrText: msg.asr_text || '',
-              llmText: msg.llm_text || '',
-              asrMs: msg.asr_ms || 0,
-              llmMs: msg.llm_ms || 0,
-              durationSec: Number(msg.duration_sec || 0),
-              asrEngine: msg.asr_engine || undefined,
-              asrModel: msg.asr_model || undefined,
-            })
-          } else if (msg.type === 'done' && !resolved) {
-            // 没有 final 就 done 了（后端判定为静音/无结果）
-            resolved = true
-            clearTimeout(timeout)
-            socket.close()
-            resolve({ asrText: '', llmText: '', asrMs: 0, llmMs: 0, durationSec: 0 })
-          } else if (msg.type === 'error') {
-            resolved = true
-            clearTimeout(timeout)
-            socket.close()
-            reject(new Error(msg.message || 'backend error'))
-          }
-        } catch { /* ignore parse errors */ }
-      }
-
-      socket.onerror = () => {
-        if (!resolved) {
-          resolved = true
-          clearTimeout(timeout)
-          reject(new Error('WebSocket 连接错误'))
-        }
-      }
-
-      socket.onclose = (ev) => {
-        console.log('[reprocess-diag] ws closed', { code: ev.code, reason: ev.reason, resolved })
-        if (!resolved) {
-          resolved = true
-          clearTimeout(timeout)
-          reject(new Error(`WebSocket 连接意外关闭 code=${ev.code}`))
-        }
-      }
-    })
+    let result: ReprocessResult
+    if (workMode === 'cloud_api') {
+      result = await reprocessViaCloudApi(chunk, hotwords, Boolean(aiEnabled), systemPrompt)
+    } else if (workMode === 'local') {
+      result = await reprocessViaLocal(chunk, Boolean(aiEnabled), systemPrompt)
+    } else {
+      result = await reprocessViaServer(chunk, hotwords, Boolean(aiEnabled), systemPrompt, clientMeta)
+    }
 
     // 极速模式下 llmText === asrText（后端未经 LLM 处理时直接复制 asrText）
     // 此时对 asrText 做智能分段提升可读性
     const needsSegment = !result.llmText || result.llmText === result.asrText
     const finalLlm = needsSegment ? segmentAsrText(result.asrText) : result.llmText
     const replacedLlm = await applyTextReplacements(finalLlm)
+
+    const meta = await buildReprocessMetadata(workMode, result)
 
     await updateHistoryRecord(record.id, {
       asrText: result.asrText,
@@ -266,10 +440,10 @@ export default function History() {
       llmMs: result.llmMs,
       charCount: (result.llmText || result.asrText).length,
       isEmpty: !(result.llmText || result.asrText).trim(),
-      workMode: 'server',
-      aiProvider: 'server',
-      aiModel: undefined,
-      asrProvider: (result.asrModel || result.asrEngine || 'server').replace(/^.*\//, ''),
+      workMode,
+      aiProvider: meta.aiProvider,
+      aiModel: meta.aiModel,
+      asrProvider: meta.asrProvider,
     })
 
     void loadRecords(debouncedKeyword, visibleCount, favoriteOnly)
