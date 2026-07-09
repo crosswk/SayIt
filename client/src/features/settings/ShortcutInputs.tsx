@@ -32,11 +32,30 @@ export function PTTShortcutInput({
     }
   }, [onChange])
 
+  const handleMouseDown = useCallback((event: MouseEvent) => {
+    // button 3 = XButton1 (back), button 4 = XButton2 (forward)
+    if (event.button === 3) {
+      event.preventDefault()
+      event.stopPropagation()
+      onChange('MouseBack')
+      setRecording(false)
+    } else if (event.button === 4) {
+      event.preventDefault()
+      event.stopPropagation()
+      onChange('MouseForward')
+      setRecording(false)
+    }
+  }, [onChange])
+
   useEffect(() => {
     if (!recording) return
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [recording, handleKeyDown])
+    window.addEventListener('mousedown', handleMouseDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('mousedown', handleMouseDown)
+    }
+  }, [recording, handleKeyDown, handleMouseDown])
 
   const displayName = value ? getSingleKeyDisplay(value) : '未设置'
 

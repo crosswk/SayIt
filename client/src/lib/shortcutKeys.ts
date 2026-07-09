@@ -29,6 +29,9 @@ export const SINGLE_KEYS: SingleKeyDef[] = [
   { setting: 'ControlRight', vk: 0xa3, label: '右 Ctrl' },
   { setting: 'ShiftLeft', vk: 0xa0, label: '左 Shift' },
   { setting: 'ShiftRight', vk: 0xa1, label: '右 Shift' },
+  // 鼠标侧键（XButton1=后退, XButton2=前进）
+  { setting: 'MouseBack', vk: 0x05, label: '鼠标侧键(后退)' },
+  { setting: 'MouseForward', vk: 0x06, label: '鼠标侧键(前进)' },
   // 常见低冲突键
   { setting: 'CapsLock', vk: 0x14, label: 'Caps Lock' },
   { setting: 'Space', vk: 0x20, label: '空格' },

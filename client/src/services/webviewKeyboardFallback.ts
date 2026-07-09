@@ -31,6 +31,16 @@ function isModifierSetting(setting: string) {
   return ['AltLeft', 'AltRight', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight'].includes(setting)
 }
 
+function isMouseSetting(setting: string) {
+  return setting === 'MouseBack' || setting === 'MouseForward'
+}
+
+function mouseButtonForSetting(setting: string): number | null {
+  if (setting === 'MouseBack') return 3
+  if (setting === 'MouseForward') return 4
+  return null
+}
+
 function handleKeyDown(e: KeyboardEvent) {
   // PTT 主键
   if (pttCode && e.code === pttCode && !pttKeyDown) {
@@ -128,6 +138,65 @@ function handleKeyUp(e: KeyboardEvent) {
   }
 }
 
+function handleMouseDown(e: MouseEvent) {
+  const pttMouseBtn = mouseButtonForSetting(pttSetting)
+  if (pttMouseBtn !== null && e.button === pttMouseBtn && !pttKeyDown) {
+    pttKeyDown = true
+    e.preventDefault()
+    console.log('[webview-kb] ptt-down mouse (webview fallback)', { button: e.button, pttSetting })
+    emit('ptt-down', {
+      source: 'webview_fallback',
+      reason: 'keydown',
+      vk: SETTING_TO_VK[pttSetting] || 0,
+      keycode: SETTING_TO_VK[pttSetting] || 0,
+      pttSetting,
+      timestamp: Date.now(),
+      altKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+    })
+    return
+  }
+
+  const hfMouseBtn = mouseButtonForSetting(hfSetting)
+  if (hfMouseBtn !== null && e.button === hfMouseBtn && pttSetting !== hfSetting) {
+    e.preventDefault()
+    return
+  }
+}
+
+function handleMouseUp(e: MouseEvent) {
+  const pttMouseBtn = mouseButtonForSetting(pttSetting)
+  if (pttMouseBtn !== null && e.button === pttMouseBtn && pttKeyDown) {
+    pttKeyDown = false
+    e.preventDefault()
+    console.log('[webview-kb] ptt-up mouse (webview fallback)', { button: e.button, pttSetting })
+    emit('ptt-up', {
+      source: 'webview_fallback',
+      reason: 'keyup',
+      vk: SETTING_TO_VK[pttSetting] || 0,
+      keycode: SETTING_TO_VK[pttSetting] || 0,
+      pttSetting,
+      timestamp: Date.now(),
+      altKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+    })
+    return
+  }
+
+  const hfMouseBtn = mouseButtonForSetting(hfSetting)
+  if (hfMouseBtn !== null && e.button === hfMouseBtn && pttSetting !== hfSetting) {
+    e.preventDefault()
+    console.log('[webview-kb] toggle-hands-free mouse (webview fallback)', { button: e.button, hfSetting })
+    emit('toggle-hands-free', {
+      source: 'webview_fallback',
+      vk: SETTING_TO_VK[hfSetting] || 0,
+    })
+    return
+  }
+}
+
 /** 刷新 PTT 设置（设置页面改键后调用） */
 export async function refreshPTTSetting() {
   try {
@@ -168,6 +237,8 @@ export async function startWebviewKeyboardFallback() {
 
   document.addEventListener('keydown', handleKeyDown, { capture: true })
   document.addEventListener('keyup', handleKeyUp, { capture: true })
+  document.addEventListener('mousedown', handleMouseDown, { capture: true })
+  document.addEventListener('mouseup', handleMouseUp, { capture: true })
   console.log('[webview-kb] started, pttSetting:', pttSetting, 'code:', pttCode)
 }
 
@@ -179,5 +250,7 @@ export function stopWebviewKeyboardFallback() {
   labKeyDown = false
   document.removeEventListener('keydown', handleKeyDown, { capture: true })
   document.removeEventListener('keyup', handleKeyUp, { capture: true })
+  document.removeEventListener('mousedown', handleMouseDown, { capture: true })
+  document.removeEventListener('mouseup', handleMouseUp, { capture: true })
   console.log('[webview-kb] stopped')
 }

@@ -15,8 +15,9 @@ use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
     GetMessageW, TranslateMessage, DispatchMessageW,
-    KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_QUIT,
+    KBDLLHOOKSTRUCT, MSLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_QUIT,
+    WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
 /// 单键热键表 —— 单一数据源。
@@ -31,6 +32,8 @@ const SINGLE_KEY_TABLE: &[(&str, u32)] = &[
     ("ControlRight", 0xA3),
     ("ShiftLeft", 0xA0),
     ("ShiftRight", 0xA1),
+    ("MouseBack", 0x05),
+    ("MouseForward", 0x06),
     ("CapsLock", 0x14),
     ("Space", 0x20),
     ("ContextMenu", 0x5D),
@@ -57,6 +60,11 @@ fn vk_codes_for_setting(setting: &str) -> Vec<u32> {
 /// Check if a shortcut setting is a single key (handled by hook) vs combo (handled by global_shortcut)
 pub fn is_single_key_setting(setting: &str) -> bool {
     SINGLE_KEY_TABLE.iter().any(|(s, _)| *s == setting)
+}
+
+/// Check if a setting is a mouse button (needs WH_MOUSE_LL instead of WH_KEYBOARD_LL)
+fn is_mouse_button_setting(setting: &str) -> bool {
+    matches!(setting, "MouseBack" | "MouseForward")
 }
 
 #[allow(dead_code)]
@@ -90,6 +98,7 @@ struct PTTEvent {
 struct HookSharedState {
     ptt_vk_codes: Vec<u32>,
     ptt_setting: String,
+    ptt_is_mouse: bool,
     ptt_key_down: AtomicBool,
     /// Generation counter — incremented on each keydown, used to invalidate
     /// stale hard-timeout timers from previous presses.
@@ -98,6 +107,7 @@ struct HookSharedState {
     /// VK codes for hands-free toggle key (empty = not using hook for hands-free)
     hf_vk_codes: Vec<u32>,
     hf_setting: String,
+    hf_is_mouse: bool,
     app_handle: AppHandle,
 }
 
@@ -148,11 +158,13 @@ impl KeyboardHookManager {
         let state = Arc::new(HookSharedState {
             ptt_vk_codes: vk_codes_for_setting(ptt_setting),
             ptt_setting: ptt_setting.to_string(),
+            ptt_is_mouse: is_mouse_button_setting(ptt_setting),
             ptt_key_down: AtomicBool::new(false),
             ptt_generation: AtomicU64::new(0),
             hands_free_active: AtomicBool::new(false),
             hf_vk_codes,
             hf_setting: hf_setting.to_string(),
+            hf_is_mouse: is_mouse_button_setting(hf_setting),
             app_handle: app.clone(),
         });
 
@@ -364,19 +376,42 @@ impl KeyboardHookManager {
                     0,
                 ) {
                     Ok(h) => {
-                        log::info!("SetWindowsHookExW succeeded: {:?}", h.0);
+                        log::info!("SetWindowsHookExW(keyboard) succeeded: {:?}", h.0);
                         Some(h)
                     }
                     Err(e) => {
-                        log::error!("SetWindowsHookExW failed: {}", e);
+                        log::error!("SetWindowsHookExW(keyboard) failed: {}", e);
                         None
                     }
                 }
             };
 
-            let hook = match install_hook() {
+            let kb_hook = match install_hook() {
                 Some(h) => h,
                 None => return,
+            };
+
+            // Install mouse hook if PTT or hands-free uses a mouse button
+            let needs_mouse_hook = state.ptt_is_mouse
+                || (state.hf_is_mouse && !state.hf_vk_codes.is_empty());
+            let mouse_hook = if needs_mouse_hook {
+                match SetWindowsHookExW(
+                    WH_MOUSE_LL,
+                    Some(low_level_mouse_proc),
+                    None,
+                    0,
+                ) {
+                    Ok(h) => {
+                        log::info!("SetWindowsHookExW(mouse) succeeded: {:?}", h.0);
+                        Some(h)
+                    }
+                    Err(e) => {
+                        log::error!("SetWindowsHookExW(mouse) failed: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
             };
 
             let thread_id = GetCurrentThreadId();
@@ -390,7 +425,10 @@ impl KeyboardHookManager {
             }
 
             log::info!("keyboard hook message loop exited");
-            let _ = UnhookWindowsHookEx(hook);
+            let _ = UnhookWindowsHookEx(kb_hook);
+            if let Some(mh) = mouse_hook {
+                let _ = UnhookWindowsHookEx(mh);
+            }
         }
 
         HOOK_STATE.with(|s| {
@@ -498,6 +536,94 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
         if consumed {
             return LRESULT(1);
+        }
+    }
+
+    CallNextHookEx(None, n_code, w_param, l_param)
+}
+
+/// XButton index constants from HIWORD of MSLLHOOKSTRUCT.mouseData
+#[cfg(windows)]
+const XBUTTON1: u16 = 1;
+#[cfg(windows)]
+const XBUTTON2: u16 = 2;
+
+#[cfg(windows)]
+unsafe extern "system" fn low_level_mouse_proc(
+    n_code: i32,
+    w_param: WPARAM,
+    l_param: LPARAM,
+) -> LRESULT {
+    if n_code >= 0 {
+        let ms = &*(l_param.0 as *const MSLLHOOKSTRUCT);
+        let msg = w_param.0 as u32;
+
+        if msg == WM_XBUTTONDOWN || msg == WM_XBUTTONUP {
+            let xbutton = ((ms.mouseData >> 16) & 0xFFFF) as u16;
+            let vk: u32 = match xbutton {
+                XBUTTON1 => 0x05, // VK_XBUTTON1
+                XBUTTON2 => 0x06, // VK_XBUTTON2
+                _ => 0,
+            };
+
+            if vk != 0 {
+                let mut consumed = false;
+
+                HOOK_STATE.with(|s| {
+                    if let Some(state) = s.borrow().as_ref() {
+                        let is_ptt_key = state.ptt_is_mouse && state.ptt_vk_codes.contains(&vk);
+                        let is_hf_key = state.hf_is_mouse
+                            && !state.hf_vk_codes.is_empty()
+                            && state.hf_vk_codes.contains(&vk)
+                            && !is_ptt_key;
+
+                        if is_ptt_key {
+                            let is_down = msg == WM_XBUTTONDOWN;
+                            let is_up = msg == WM_XBUTTONUP;
+
+                            consumed = true;
+
+                            if is_down && !state.ptt_key_down.load(Ordering::SeqCst)
+                                && !state.hands_free_active.load(Ordering::SeqCst)
+                            {
+                                state.ptt_key_down.store(true, Ordering::SeqCst);
+                                let gen = state.ptt_generation.fetch_add(1, Ordering::SeqCst) + 1;
+                                HOOK_ACTION_TX.with(|tx| {
+                                    if let Some(sender) = tx.borrow().as_ref() {
+                                        let _ = sender.try_send(HookAction::PttDown { vk, gen });
+                                    }
+                                });
+                            }
+
+                            if is_up && state.ptt_key_down.load(Ordering::SeqCst) {
+                                state.ptt_key_down.store(false, Ordering::SeqCst);
+                                if !state.hands_free_active.load(Ordering::SeqCst) {
+                                    HOOK_ACTION_TX.with(|tx| {
+                                        if let Some(sender) = tx.borrow().as_ref() {
+                                            let _ = sender.try_send(HookAction::PttUp { vk });
+                                        }
+                                    });
+                                }
+                            }
+                        }
+
+                        if is_hf_key {
+                            consumed = true;
+                            if msg == WM_XBUTTONUP {
+                                HOOK_ACTION_TX.with(|tx| {
+                                    if let Some(sender) = tx.borrow().as_ref() {
+                                        let _ = sender.try_send(HookAction::HfToggle { vk });
+                                    }
+                                });
+                            }
+                        }
+                    }
+                });
+
+                if consumed {
+                    return LRESULT(1);
+                }
+            }
         }
     }
 

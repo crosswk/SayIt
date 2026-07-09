@@ -189,6 +189,7 @@ pub fn is_likely_editable_pub(ctx: &context::AppContext) -> bool {
         "chrome", "msedge", "firefox", "opera", "brave",
         "teams", "wechat", "dingtalk", "slack",
         "windowsterminal", "cmd", "powershell",
+        "warp", "alacritty", "wezterm", "hyper", "tabby", "kitty",
         "explorer",
         "mobaxterm", "putty", "securecrt", "xshell",
     ];
@@ -332,7 +333,7 @@ unsafe fn do_inject(target: HWND, focus: HWND, text: &str) -> InjectResult {
 
     // Release stuck modifiers
     release_modifiers();
-    std::thread::sleep(std::time::Duration::from_millis(15));
+    std::thread::sleep(std::time::Duration::from_millis(30));
 
     // Set focus to child control if needed
     if focus != target && focus.0 != std::ptr::null_mut() {
@@ -415,12 +416,12 @@ unsafe fn force_foreground(target: HWND) -> bool {
     let _ = ShowWindow(target, SW_SHOW);
     let _ = BringWindowToTop(target);
     let _ = SetForegroundWindow(target);
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(std::time::Duration::from_millis(80));
 
     let fg_ok = GetForegroundWindow() == target;
     if !fg_ok {
         let _ = SetForegroundWindow(target);
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
     if attached {
