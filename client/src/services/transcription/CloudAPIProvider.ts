@@ -7,6 +7,7 @@ import { uint8ArrayToBase64 } from '@/lib/encoding'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getSetting } from '../store'
+import { restoreHotwordSpacing } from '../textPostProcess'
 import { addRuntimeEvent } from '../debugLog'
 import type {
   TranscriptionProvider,
@@ -363,6 +364,9 @@ export class CloudAPIProvider implements TranscriptionProvider {
       this.pcmBuffers = []
       // ASR 已拿到最终文本，后续不再有中间结果，撤下监听
       this.teardownPartials()
+
+      // 还原被 ASR 拆开加空格的无空格热词（如豆包把 "SayIt" 识别成 "Say It"）
+      asrText = restoreHotwordSpacing(asrText, this.startOpts?.hotwords ?? [])
 
       // 发送 ASR 中间结果
       this.callbacks.onASR?.({ text: asrText, asrMs, durationSec })

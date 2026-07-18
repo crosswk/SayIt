@@ -60,6 +60,10 @@ export const DEFAULTS: Record<string, unknown> = {
   // 识别完成后文本仍会照常交给 AI 处理。可选: true | false
   streamingDisplayEnabled: false,
 
+  // ── 热词注入 AI 提示词 ──
+  // 打开后，AI 整理时会收到你的热词表，帮助纠正/保留专有名词。默认关闭。可选: true | false
+  injectHotwordsToPrompt: false,
+
   // ── 提示音 ──
   readySoundEnabled: true, // 录音就绪提示音。可选: true | false
 

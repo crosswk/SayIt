@@ -173,6 +173,42 @@ export function convertChineseNumbers(text: string): string {
   return result
 }
 
+/**
+ * 还原被 ASR 拆开加空格的「无空格热词」（如豆包把热词 "SayIt" 识别成 "Say It"）。
+ *
+ * 仅处理不含空格、纯 ASCII 字母/数字的热词（中文不会被加空格）。对每个热词构造
+ * 大小写敏感、字符间允许空白、两端带词边界的正则；命中后若与热词不同（即确实被
+ * 拆开过）就合并还原成热词原形。
+ *
+ * 大小写敏感 + 词边界是为了避免误伤：普通小写短语（如句子里的 "say it"）不会被
+ * 改成 "SayIt"，"Say Item" 也不会被错并成 "SayItem"。
+ */
+export function restoreHotwordSpacing(text: string, hotwords: string[]): string {
+  if (!text || !hotwords || hotwords.length === 0) return text
+  const targets = hotwords
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 2 && /^[A-Za-z0-9]+$/.test(w) && /[A-Za-z]/.test(w))
+  if (targets.length === 0) return text
+  // 长词优先，避免短词先命中影响更长的热词
+  targets.sort((a, b) => b.length - a.length)
+  let result = text
+  for (const hw of targets) {
+    const inner = hw.split('').join('\\s*')
+    // 大小写不敏感匹配（豆包可能把 "SayIt" 识别成 "Say it"，尾字母小写），
+    // 但要求首字符大小写与热词一致，避免把普通小写短语（如 "say it"）误并成热词。
+    const re = new RegExp(`\\b${inner}\\b`, 'gi')
+    result = result.replace(re, (m) => {
+      if (m === hw) return m
+      // 连写命中（无内部空格，如 "typeless"/"sayit"）→ 直接还原成热词原样（含大小写）。
+      // 带空格命中（如 "Say it"）→ 仅当首字母大小写一致才还原，避免把普通句子里的
+      // 小写短语（如 "say it"）误并成热词。
+      if (/\s/.test(m) && m[0] !== hw[0]) return m
+      return hw
+    })
+  }
+  return result
+}
+
 /** 去除每行末尾的标点符号（及尾随空白）。 */
 export function stripTrailingPunctuation(text: string): string {
   if (!text) return text

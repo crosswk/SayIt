@@ -74,9 +74,9 @@ pub async fn transcribe(
     let mut request_params = serde_json::json!({
         "model_name": "bigmodel"
     });
-    // 注入热词（如果有）
+    // 注入热词（如果有）：热词须放在 request.corpus.context
     if let Some(ctx) = doubao_protocol::build_hotword_context(hotwords) {
-        request_params["context"] = serde_json::Value::String(ctx);
+        request_params["corpus"] = serde_json::json!({ "context": ctx });
     }
 
     let body = serde_json::json!({

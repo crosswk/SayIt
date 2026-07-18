@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { open as shellOpen } from '@tauri-apps/plugin-shell'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, Info } from 'lucide-react'
+import { Tooltip } from '@/components/ui/tooltip'
 import { Card, CardContent } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { themeList } from '@/themes'
@@ -319,7 +320,15 @@ export default function AppearancePage() {
 
                 <div className="mt-4 flex items-center justify-between">
                   <div className="pr-3">
-                    <p className="text-sm font-medium">流式实时字幕</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-medium">流式实时字幕</p>
+                      <Tooltip
+                        variant="light"
+                        content={'开启后走「双向流式」实时通路：边说边出字、更快，但整体准确率略低、热词效果明显减弱。\n关闭则用更准的通路（准确率更高、热词更准），只是没有边说边出字的效果。\n如果你很看重专有名词 / 热词的识别准确率，建议关闭。'}
+                      >
+                        <Info className="h-3.5 w-3.5 shrink-0 cursor-help text-muted-foreground/50 transition-colors hover:text-muted-foreground" />
+                      </Tooltip>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       说话时在悬浮窗上实时显示识别文字
                       <span className="text-muted-foreground/70">

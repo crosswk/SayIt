@@ -10,7 +10,10 @@ const API_URL: &str = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multi
 ///
 /// Qwen3-ASR 支持通过上下文文本（context/corpus）提升专业术语、人名等识别准确率，
 /// 最多 10000 tokens。非流式接口放在 system 消息文本里，实时接口放在
-/// session.input_audio_transcription.corpus.text 里。返回去重后用顿号拼接的词表。
+/// session.input_audio_transcription.corpus.text 里。
+///
+/// 词表用「空格」拼接（与本项目自建后端本地 qwen3 的 context 用法一致：
+/// `" ".join(hotwords)` 传给 model.transcribe(context=...)，实测偏置效果更好）。
 pub fn build_hotword_context_text(hotwords: &[String]) -> Option<String> {
     let mut seen = std::collections::HashSet::new();
     let words: Vec<&str> = hotwords
@@ -22,26 +25,50 @@ pub fn build_hotword_context_text(hotwords: &[String]) -> Option<String> {
     if words.is_empty() {
         return None;
     }
-    Some(words.join("、"))
+    Some(words.join(" "))
 }
 
-/// 去掉常见分隔符/空白后用于比较（判断是否为热词上下文的原样回显）。
+/// 去掉分隔符/标点/空白并转小写，用于回显比较。
 fn normalize_for_echo(s: &str) -> String {
     s.chars()
         .filter(|c| !c.is_whitespace() && !"、,，;；。.·/|\\".contains(*c))
-        .collect()
+        .collect::<String>()
+        .to_lowercase()
 }
 
-/// 若识别文本去分隔符后恰好等于传入的热词上下文（去分隔符），判为热词回显幻觉，返回空串。
-fn strip_hotword_echo(text: String, hotword_context: &str) -> String {
-    if hotword_context.trim().is_empty() {
+/// 热词回显检测：音频短/不清晰时，模型可能把传入的热词表整串吐出来。
+/// 做法：结果去标点/空白/常见连接词后，逐个扣掉命中的热词；若最终无残余
+/// 且命中的「不同热词」≥3，判为回显幻觉，返回空串。
+/// 门槛 ≥3 是为了不误伤真实的单/双热词短句（如只说了 "Typeless 和 SayIt"）。
+fn strip_hotword_echo(text: String, hotwords: &[&str]) -> String {
+    if hotwords.is_empty() {
         return text;
     }
-    let t = normalize_for_echo(&text);
-    if t.is_empty() {
+    let mut rest = normalize_for_echo(&text);
+    if rest.is_empty() {
         return text;
     }
-    if t == normalize_for_echo(hotword_context) {
+    // 去掉常见连接词，避免它们残留导致误判为"有额外内容"
+    for conn in ["和", "与", "跟", "及", "以及", "还有", "and"] {
+        rest = rest.replace(conn, "");
+    }
+    // 长词优先，避免子串误配（如 LiteLLM 含 LLM）
+    let mut hw: Vec<String> = hotwords
+        .iter()
+        .map(|w| normalize_for_echo(w))
+        .filter(|w| !w.is_empty())
+        .collect();
+    hw.sort_by(|a, b| b.len().cmp(&a.len()));
+    let mut distinct = 0usize;
+    for w in &hw {
+        if rest.contains(w.as_str()) {
+            distinct += 1;
+            while let Some(pos) = rest.find(w.as_str()) {
+                rest.replace_range(pos..pos + w.len(), "");
+            }
+        }
+    }
+    if rest.is_empty() && distinct >= 3 {
         return String::new();
     }
     text
@@ -84,8 +111,16 @@ pub async fn transcribe(
     let wav_b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &wav);
     let data_url = format!("data:audio/wav;base64,{}", wav_b64);
 
-    // 热词上下文偏置：放入 system 消息文本（Qwen3-ASR 通过上下文提升术语识别）
-    let system_text = build_hotword_context_text(hotwords).unwrap_or_default();
+    // 热词上下文偏置：用「逗号词表」作为 system 上下文。实测逗号分隔最稳
+    // （空格会给结果加引号；带"请识别以下术语"引导语则容易让模型把整串热词吐出来=回显）。
+    let mut seen = std::collections::HashSet::new();
+    let words: Vec<&str> = hotwords
+        .iter()
+        .map(|w| w.trim())
+        .filter(|w| !w.is_empty())
+        .filter(|w| seen.insert(w.to_string()))
+        .collect();
+    let system_text = words.join(", ");
 
     let body = serde_json::json!({
         "model": "qwen3-asr-flash",
@@ -136,9 +171,8 @@ pub async fn transcribe(
         .unwrap_or("")
         .to_string();
 
-    // 防热词回显：极短/静音音频下，模型有时会把作为上下文传入的热词原样吐出来。
-    // 若识别结果去掉分隔符后恰好等于我们传入的热词上下文，判为幻觉，返回空。
-    let text = strip_hotword_echo(text, &system_text);
+    // 防热词回显：短/不清晰音频下，模型可能把整串热词吐出来。命中≥3个且无其它内容则清空。
+    let text = strip_hotword_echo(text, &words);
 
     Ok(AsrResult { text, elapsed_ms })
 }

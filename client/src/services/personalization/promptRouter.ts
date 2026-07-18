@@ -54,6 +54,14 @@ function summarizeResolution(parts: string[]) {
   return parts.filter(Boolean).join(' | ')
 }
 
+/** 构造"热词注入 AI 提示词"的段落；无热词时返回 null。供实时与重新识别两条路径共用。 */
+export function buildHotwordInjectionPart(hotwords: string[] | undefined): string | null {
+  if (!hotwords || hotwords.length === 0) return null
+  const terms = Array.from(new Set(hotwords.map((w) => w.trim()).filter(Boolean)))
+  if (terms.length === 0) return null
+  return `用户术语表：以下是用户常用的专有名词/术语，整理时若遇到读音相近或明显误识的词，请优先纠正为下列正确写法（保持其大小写），并原样保留：\n${terms.join('、')}`
+}
+
 export function resolvePromptRouting(input: PromptRoutingInput): PromptResolution {
   const matchedRule = [...input.appRules]
     .filter((rule) => rule.enabled)
@@ -73,10 +81,21 @@ export function resolvePromptRouting(input: PromptRoutingInput): PromptResolutio
     systemPromptParts.push(`用户画像补充：\n${dynamicIdentityPrompt}`)
   }
 
+  // 可选：把热词表注入系统提示词，帮助 AI 在整理时纠正/保留专有名词（默认关闭）。
+  let hotwordInjected = false
+  if (input.injectHotwords) {
+    const part = buildHotwordInjectionPart(input.hotwords)
+    if (part) {
+      systemPromptParts.push(part)
+      hotwordInjected = true
+    }
+  }
+
   const summaryParts = [
     `基础预设: ${preset.name}`,
     matchedRule ? `应用规则: ${matchedRule.name}` : '应用规则: 未命中',
     dynamicIdentityPrompt && dominantScene ? `用户画像: ${dominantScene.label}` : '',
+    hotwordInjected ? '热词注入: 开' : '',
   ]
 
   return {

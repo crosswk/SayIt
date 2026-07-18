@@ -1,9 +1,49 @@
 import { describe, it, expect } from 'vitest'
 import {
   convertChineseNumbers,
+  restoreHotwordSpacing,
   stripTrailingPunctuation,
   replacePunctuationWithSpace,
 } from '../textPostProcess'
+
+describe('restoreHotwordSpacing', () => {
+  it('还原被拆开加空格的热词', () => {
+    expect(restoreHotwordSpacing('这是 Say It 输入法', ['SayIt'])).toBe('这是 SayIt 输入法')
+    expect(restoreHotwordSpacing('用 Type less 打字', ['Typeless'])).toBe('用 Typeless 打字')
+    expect(restoreHotwordSpacing('试试 GPT 5', ['GPT'])).toBe('试试 GPT 5')
+  })
+
+  it('尾字母被小写化也能还原（Say it → SayIt）', () => {
+    expect(restoreHotwordSpacing('这是 Say it 输入法', ['SayIt'])).toBe('这是 SayIt 输入法')
+    expect(restoreHotwordSpacing('Say it', ['SayIt'])).toBe('SayIt')
+  })
+
+  it('连写词的大小写也还原（typeless → Typeless）', () => {
+    expect(restoreHotwordSpacing('识别出来了 typeless。', ['Typeless'])).toBe('识别出来了 Typeless。')
+    expect(restoreHotwordSpacing('sayit 很好用', ['SayIt'])).toBe('SayIt 很好用')
+  })
+
+  it('已正确的热词不改动', () => {
+    expect(restoreHotwordSpacing('SayIt 很好用', ['SayIt'])).toBe('SayIt 很好用')
+  })
+
+  it('大小写敏感，不误伤普通小写短语', () => {
+    expect(restoreHotwordSpacing('I say it loudly', ['SayIt'])).toBe('I say it loudly')
+  })
+
+  it('词边界避免错误合并', () => {
+    expect(restoreHotwordSpacing('Say Item here', ['SayIt'])).toBe('Say Item here')
+  })
+
+  it('无热词或空文本安全', () => {
+    expect(restoreHotwordSpacing('Say It', [])).toBe('Say It')
+    expect(restoreHotwordSpacing('', ['SayIt'])).toBe('')
+  })
+
+  it('忽略含空格或中文的热词', () => {
+    expect(restoreHotwordSpacing('你 好 世界', ['你好'])).toBe('你 好 世界')
+  })
+})
 
 describe('convertChineseNumbers', () => {
   it('百分之 → %', () => {

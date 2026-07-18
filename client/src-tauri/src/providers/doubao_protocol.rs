@@ -159,9 +159,10 @@ pub fn parse_server_response(data: &[u8]) -> Result<ServerResponse, String> {
     })
 }
 
-/// 构建热词 context 字符串（火山引擎 request.context 字段）
+/// 构建热词 context 字符串（火山引擎 request.corpus.context 字段）
 ///
-/// 热词直传，优先级高于自学习平台词表；流式输入模式(nostream)支持最多 5000 个词。
+/// 热词直传，优先级高于自学习平台词表。context 须嵌在 request.corpus 下，
+/// 放到 request 顶层不生效。双向流式约 100 tokens，流式输入(nostream)支持最多 5000 个词。
 /// 返回值是序列化后的 JSON 字符串（context 字段类型为 string，不是嵌套对象）。
 /// 形如：{"hotwords":[{"word":"热词1"},{"word":"热词2"}]}
 pub fn build_hotword_context(hotwords: &[String]) -> Option<String> {

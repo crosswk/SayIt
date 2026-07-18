@@ -44,4 +44,8 @@ export interface PromptRoutingInput {
   activePresetId: string
   appRules: AppPromptRule[]
   userStats: UserStats
+  /** 生效的热词列表（用于可选的"注入 AI 提示词"功能） */
+  hotwords?: string[]
+  /** 是否把热词注入到 AI 系统提示词，帮助 AI 纠正专有名词。默认关闭。 */
+  injectHotwords?: boolean
 }

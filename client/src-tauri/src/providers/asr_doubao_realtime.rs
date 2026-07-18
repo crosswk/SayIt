@@ -75,7 +75,9 @@ fn build_client_request_json(
     });
     if let Some(words) = hotwords {
         if let Some(ctx) = doubao_protocol::build_hotword_context(words) {
-            request_params["context"] = serde_json::Value::String(ctx);
+            // 热词须放在 request.corpus.context（非 request.context），否则流式接口不生效。
+            // 注意：双向流式模式 context 上限约 100 tokens，超出会被服务端截断。
+            request_params["corpus"] = serde_json::json!({ "context": ctx });
         }
     }
 

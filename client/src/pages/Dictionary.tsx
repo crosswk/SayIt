@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, X, Search, RotateCcw, ChevronDown, ChevronUp, FolderPlus, Trash2, Download } from 'lucide-react'
+import { Plus, X, Search, RotateCcw, ChevronDown, ChevronUp, FolderPlus, Trash2, Download, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
@@ -121,8 +121,14 @@ export default function Dictionary() {
       {/* ===== 热词 Tab ===== */}
       {tab === 'hotwords' && (
         <>
-          <p className="mb-4 text-sm text-muted-foreground">
-            热词可提升语音识别对专有名词和行业术语的准确率。
+          <p className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground">
+            <span>热词可提升语音识别对专有名词和行业术语的准确率。</span>
+            <Tooltip
+              variant="light"
+              content={'各模型热词支持情况：\n· 豆包 Seed-ASR 2.0：支持。关闭实时字幕时最准；开启实时字幕（双向流式）时热词效果略弱。\n· 千问 qwen3-asr-flash-realtime（实时）：支持，效果较好。\n· 千问 qwen3-asr-flash（非实时）：支持，效果一般。\n· 本地 Qwen3-ASR：支持。\n· 本地 SenseVoice：不支持热词。\n· 服务器模式：支持，效果较好。\n\n注意：热词只提高识别命中概率，并不保证 100% 准确。'}
+            >
+              <Info className="h-3.5 w-3.5 shrink-0 cursor-help text-muted-foreground/50 transition-colors hover:text-muted-foreground" />
+            </Tooltip>
           </p>
 
           {/* 新建热词分类 */}

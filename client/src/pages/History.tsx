@@ -22,7 +22,8 @@ import {
   type HistoryRecord,
 } from '@/services/store'
 import { loadAudioAsDataUrl } from '@/services/audioFileService'
-import { applyTextTransforms } from '@/services/textPostProcess'
+import { applyTextTransforms, restoreHotwordSpacing } from '@/services/textPostProcess'
+import { buildHotwordInjectionPart } from '@/services/personalization/promptRouter'
 import {
   BUILTIN_SET_WORDS_KEY,
   BUILTIN_SET_ACTIVE_KEY,
@@ -187,7 +188,8 @@ async function reprocessViaCloudApi(
   const asrResult = await invoke<{ text: string; elapsed_ms: number }>('cloud_transcribe', {
     request: { audio_b64: audioB64, sample_rate: 16000, asr_config: asrConfig, hotwords },
   })
-  const asrText = asrResult.text
+  // 还原被 ASR 拆开加空格的无空格热词（如豆包把 "SayIt" 识别成 "Say It"）
+  const asrText = restoreHotwordSpacing(asrResult.text, hotwords)
   const asrMs = asrResult.elapsed_ms || Math.round(performance.now() - asrStart)
 
   // Qwen Omni 已内置 AI，无需再校对
@@ -414,7 +416,12 @@ export default function History() {
     // 按用户当前选择的工作模式重新识别，与实时录音保持一致
     // （此前这里硬编码走服务器模式，导致云 API/本地模式下重新识别被错误地发回服务器）
     const workMode = getWorkMode()
-    const systemPrompt = aiEnabled ? preset.systemPrompt : undefined
+    let systemPrompt = aiEnabled ? preset.systemPrompt : undefined
+    // 与实时一致：开启"热词注入 AI 提示词"时，重新识别也把热词表注入系统提示词
+    if (systemPrompt && (await getSetting('injectHotwordsToPrompt', false))) {
+      const part = buildHotwordInjectionPart(hotwords)
+      if (part) systemPrompt = `${systemPrompt}\n\n${part}`
+    }
 
     let result: ReprocessResult
     if (workMode === 'cloud_api') {

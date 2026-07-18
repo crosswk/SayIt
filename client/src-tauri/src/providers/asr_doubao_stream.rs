@@ -59,9 +59,9 @@ pub async fn transcribe(
         "result_type": "full",
         "show_utterances": true
     });
-    // 注入热词（如果有）
+    // 注入热词（如果有）：流式接口热词须放在 request.corpus.context
     if let Some(ctx) = doubao_protocol::build_hotword_context(hotwords) {
-        request_params["context"] = serde_json::Value::String(ctx);
+        request_params["corpus"] = serde_json::json!({ "context": ctx });
     }
 
     let client_request = serde_json::json!({

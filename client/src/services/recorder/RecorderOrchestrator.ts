@@ -124,6 +124,8 @@ export class RecorderOrchestrator {
   private cachedAppPromptRules: AppPromptRule[] = []
   private cachedUserStats: UserStats = createDefaultUserStats()
   private cachedHotwords: string[] = []
+  /** 是否把热词注入 AI 提示词（默认关，用户可在热词页开启）。 */
+  private cachedInjectHotwords = false
   private cachedLanguage: string = ''
   /** 是否开启流式实时显示（识别过程中把中间结果实时显示在悬浮窗）。默认关闭。 */
   private cachedStreamingDisplay = false
@@ -399,6 +401,7 @@ export class RecorderOrchestrator {
       appPromptRules,
       userStats,
       streamingDisplay,
+      injectHotwords,
     ] = await Promise.all([
       getSetting('selectedMic', ''),
       getSetting('muteSystemAudioWhileRecording', false),
@@ -409,11 +412,13 @@ export class RecorderOrchestrator {
       getAppPromptRules(),
       getUserStats(),
       getSetting('streamingDisplayEnabled', false),
+      getSetting('injectHotwordsToPrompt', false),
     ])
 
     this.cachedMicId = String(micId || '')
     this.cachedMuteSystemAudio = Boolean(muteSystemAudio)
     this.cachedProtectClipboard = Boolean(protectClipboard)
+    this.cachedInjectHotwords = Boolean(injectHotwords)
     this.cachedPresets = presets
     this.cachedActivePresetId = activePresetId
     this.cachedAiEnabled = Boolean(aiEnabled)
@@ -905,6 +910,8 @@ export class RecorderOrchestrator {
       activePresetId: this.cachedActivePresetId,
       appRules: this.cachedAppPromptRules,
       userStats: this.cachedUserStats,
+      hotwords: this.cachedHotwords,
+      injectHotwords: this.cachedInjectHotwords,
     })
 
     addRuntimeEvent('info', 'recorder', '开始录音', {

@@ -19,6 +19,7 @@ import {
   type PromptPreset,
 } from '@/services/store'
 import AIProofreadToggle from './AIProofreadToggle'
+import HotwordPromptInjectToggle from './HotwordPromptInjectToggle'
 import AppPromptRulesSection from './AppPromptRulesSection'
 import PromptPresetSection from './PromptPresetSection'
 
@@ -127,6 +128,7 @@ export default function AIInstructionsPage() {
 
       <div className="space-y-6">
         <AIProofreadToggle />
+        <HotwordPromptInjectToggle />
 
         <PromptPresetSection
           presets={presets}
