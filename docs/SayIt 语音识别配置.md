@@ -23,6 +23,20 @@ SayIt 对豆包和千问 ASR 都做了流式优化——按住说话时，音频
 | **阿里千问** | qwen3-asr-flash-realtime | 流式识别，速度极快       | 1.19 元/小时            |
 | **阿里千问** | qwen3.5-omni-flash       | ASR + AI 一步到位        | 按 Token 计费（见下方） |
 
+### 热词支持情况
+
+「热词」在不同识别模式里的作用不完全一样：
+
+| 识别模式 | 热词是否进入 ASR 识别 | 说明 |
+| --- | --- | --- |
+| 豆包 Seed-ASR-2.0 | 支持 | 通过火山引擎 `context` 字段直传给 ASR。 |
+| 千问 qwen3-asr-flash / realtime | 支持 | 作为上下文偏置传给千问；流式版使用 `corpus.text`。 |
+| 服务器模式 | 支持 | 服务端会把热词作为识别上下文，适合团队统一维护术语表。 |
+| 本地 Qwen3-ASR | 支持 | 本地 recognizer 创建时会把热词写入配置；热词变化后会重建 recognizer。 |
+| 本地 SenseVoice | 不支持 ASR 热词 | sherpa-onnx SenseVoice 配置没有热词/context bias 字段。可开启「热词注入 AI 提示词」或文本处理，让 AI 整理阶段把 `Type less` 这类结果纠正为 `Typeless`。 |
+
+因此，如果你要让「Typeless」「SayIt」这类产品名在 ASR 阶段就尽量识别正确，优先选择豆包、千问、服务器模式或本地 Qwen3-ASR。继续使用本地 SenseVoice 时，热词更适合用于后处理纠错，而不是直接改变声学解码结果。
+
 ## 2. 使用豆包语音识别
 
 SayIt 支持使用字节跳动「豆包流式语音识别模型 2.0」作为语音识别引擎。豆包 ASR 是目前中文语音识别准确率最高的模型，推荐使用。
