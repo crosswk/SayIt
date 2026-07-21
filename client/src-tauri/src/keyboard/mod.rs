@@ -74,6 +74,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP,
     WM_SYSKEYDOWN, WM_SYSKEYUP, WM_QUIT,
     MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    WM_MBUTTONDOWN, WM_MBUTTONUP,
 };
 
 /// 单键热键表 —— 单一数据源。
@@ -97,6 +98,8 @@ const SINGLE_KEY_TABLE: &[(&str, u32)] = &[
     // 鼠标侧键：走 WH_MOUSE_LL 鼠标钩子（非键盘钩子），vk 用 Windows 的 VK_XBUTTON1/2。
     ("XButton1", 0x05),
     ("XButton2", 0x06),
+    // 鼠标中键：走同一个低级鼠标钩子，vk 用 VK_MBUTTON。
+    ("MButton", 0x04),
     // 浏览器后退/前进键：罗技等改键鼠标常把侧键映射成这个（走键盘钩子）。
     ("BrowserBack", 0xA6),
     ("BrowserForward", 0xA7),
@@ -124,7 +127,7 @@ pub fn is_single_key_setting(setting: &str) -> bool {
 
 /// 该设置是否为鼠标侧键（由低级鼠标钩子处理，而非键盘钩子）。
 fn is_mouse_button_setting(setting: &str) -> bool {
-    matches!(setting, "XButton1" | "XButton2")
+    matches!(setting, "XButton1" | "XButton2" | "MButton")
 }
 
 #[allow(dead_code)]
@@ -531,6 +534,7 @@ impl KeyboardHookManager {
                     }
                     HookAction::MouseCaptured { vk } => {
                         let setting = match vk {
+                            0x04 => "MButton",
                             0x05 => "XButton1",
                             0x06 => "XButton2",
                             0xA6 => "BrowserBack",
@@ -654,7 +658,13 @@ unsafe extern "system" fn low_level_mouse_proc(
     let msg = w_param.0 as u32;
 
     // ── 最热路径：移动/滚轮/其它键一律立刻放行，连结构体都不解引用 ──
-    if n_code < 0 || (msg != WM_XBUTTONDOWN && msg != WM_XBUTTONUP) {
+    // 只处理侧键(XBUTTON)和中键(MBUTTON)的按下/抬起。
+    if n_code < 0
+        || (msg != WM_XBUTTONDOWN
+            && msg != WM_XBUTTONUP
+            && msg != WM_MBUTTONDOWN
+            && msg != WM_MBUTTONUP)
+    {
         return CallNextHookEx(None, n_code, w_param, l_param);
     }
 
@@ -666,16 +676,21 @@ unsafe extern "system" fn low_level_mouse_proc(
         return CallNextHookEx(None, n_code, w_param, l_param);
     }
 
-    // 侧键编号在 mouseData 的高 16 位：1=XBUTTON1（后退键） 2=XBUTTON2（前进键）。
-    let xbtn = (ms.mouseData >> 16) & 0xFFFF;
-    let vk: u32 = match xbtn {
-        1 => 0x05, // VK_XBUTTON1
-        2 => 0x06, // VK_XBUTTON2
-        _ => return CallNextHookEx(None, n_code, w_param, l_param),
+    // 中键：直接是 VK_MBUTTON(0x04)，无需从 mouseData 解码。
+    // 侧键：编号在 mouseData 高 16 位：1=XBUTTON1（后退键） 2=XBUTTON2（前进键）。
+    let is_middle = msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP;
+    let vk: u32 = if is_middle {
+        0x04 // VK_MBUTTON
+    } else {
+        match (ms.mouseData >> 16) & 0xFFFF {
+            1 => 0x05, // VK_XBUTTON1
+            2 => 0x06, // VK_XBUTTON2
+            _ => return CallNextHookEx(None, n_code, w_param, l_param),
+        }
     };
 
-    let is_down = msg == WM_XBUTTONDOWN;
-    let is_up = msg == WM_XBUTTONUP;
+    let is_down = msg == WM_XBUTTONDOWN || msg == WM_MBUTTONDOWN;
+    let is_up = msg == WM_XBUTTONUP || msg == WM_MBUTTONUP;
 
     // ── 录制捕获模式：把侧键吞掉并回报给设置页，避免 webview 把它当成“后退”导航 ──
     if SHORTCUT_CAPTURE.load(Ordering::SeqCst) {

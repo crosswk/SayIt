@@ -18,6 +18,8 @@ interface OverlayPayload {
   errorMessage?: string
   warning?: string
   toastText?: string
+  /** toast 的语气：info=中性（如切换预设），warn=琥珀色+图标（如未检测到声音） */
+  toastTone?: 'info' | 'warn'
   streaming?: boolean
   streamingText?: string
   _overlayShowId?: number
@@ -76,6 +78,7 @@ export default function Overlay() {
   const [fallbackText, setFallbackText] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [toastText, setToastText] = useState('')
+  const [toastTone, setToastTone] = useState<'info' | 'warn'>('info')
   const [streamingText, setStreamingText] = useState('')
   const [streamingOn, setStreamingOn] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -136,6 +139,7 @@ export default function Overlay() {
       if (typeof payload.fallbackText === 'string') setFallbackText(payload.fallbackText)
       if (typeof payload.errorMessage === 'string') setErrorMessage(payload.errorMessage)
       if (typeof payload.toastText === 'string') setToastText(payload.toastText)
+      if (payload.toastTone === 'info' || payload.toastTone === 'warn') setToastTone(payload.toastTone)
       if (typeof payload.warning === 'string') setWarning(payload.warning)
       if (typeof payload.streamingText === 'string') setStreamingText(payload.streamingText)
       if (typeof payload.streaming === 'boolean') setStreamingOn(payload.streaming)
@@ -373,7 +377,7 @@ export default function Overlay() {
                 </span>
               )}
               {warning && (
-                <span className="ml-2 text-xs text-amber-400 animate-pulse">
+                <span className="ml-2 whitespace-nowrap text-xs text-amber-400 animate-pulse">
                   {warning}
                 </span>
               )}
@@ -405,9 +409,13 @@ export default function Overlay() {
 
           {state === 'toast' && (
             <div className="flex items-center gap-2">
-              <span className="text-xs whitespace-nowrap" style={{ color: 'var(--overlay-text)' }}>
-                {toastText}
-              </span>
+              {toastTone === 'warn' ? (
+                <span className="whitespace-nowrap text-xs text-amber-400">{toastText}</span>
+              ) : (
+                <span className="whitespace-nowrap text-xs" style={{ color: 'var(--overlay-text)' }}>
+                  {toastText}
+                </span>
+              )}
             </div>
           )}
         </div>

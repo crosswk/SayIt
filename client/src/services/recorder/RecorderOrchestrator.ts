@@ -146,6 +146,13 @@ export class RecorderOrchestrator {
   private handsFreeAutoStopId: ReturnType<typeof setTimeout> | null = null
   /** Low volume detection: consecutive silent samples count */
   private consecutiveSilentSamples = 0
+  /** 连续正常音量的采样数——用于「持续说话一段时间才清除低音量警告」的迟滞判断，避免瞬时小声音把警告瞬间清掉造成闪烁 */
+  private consecutiveVoicedSamples = 0
+  /** 低音量警告当前是否正在显示 */
+  private lowVolumeWarningShown = false
+  /** 本次录音是否已经听到过一次正常音量的说话。一旦听到过，说明麦克风正常、距离合适，
+   *  后续静音只是正常停顿思考，不再弹「请靠近麦克风」，避免催促感/压迫感。 */
+  private hasDetectedVoiceThisSession = false
   private lastLowVolumeWarnAt = 0
 
   /** Audio stats tracking */
@@ -531,6 +538,9 @@ export class RecorderOrchestrator {
     this.currentPromptResolution = null
     this.cachedProbeResult = null
     this.consecutiveSilentSamples = 0
+    this.consecutiveVoicedSamples = 0
+    this.lowVolumeWarningShown = false
+    this.hasDetectedVoiceThisSession = false
     this.lastLowVolumeWarnAt = 0
     clearCapturedInsertionTarget()
     this.recordStartPerf = 0
@@ -592,7 +602,10 @@ export class RecorderOrchestrator {
             void bridge.emit('history-updated')
           }
           void saveAndRecord()
-          this.resetToIdle()
+          // 明确提示"未检测到有效声音"再收尾，避免悬浮窗一闪而逝让用户困惑。
+          // keepOverlay 让提示留到它自己的计时器（约 2.5s）隐藏。
+          this.overlayService.showNoSpeech()
+          this.resetToIdle({ keepOverlay: true })
         }
       },
 
@@ -953,6 +966,9 @@ export class RecorderOrchestrator {
     this.audioStatsSilentFrames = 0
     this.audioStatsTotalFrames = 0
     this.consecutiveSilentSamples = 0
+    this.consecutiveVoicedSamples = 0
+    this.lowVolumeWarningShown = false
+    this.hasDetectedVoiceThisSession = false
     this.lastLowVolumeWarnAt = 0
     resetWaveformBarState(this.overlayWaveState, this.overlayService.getBarCount(), 3)
 
@@ -1046,23 +1062,35 @@ export class RecorderOrchestrator {
 
           if (rms < 0.0003) {
             this.consecutiveSilentSamples += pcmFrame.length
-            // First warning after 3s of silence (48000 samples at 16kHz)
-            // Then re-warn every 5s (80000 samples)
-            const FIRST_WARN = 48000
-            const REWARN_INTERVAL = 80000
+            this.consecutiveVoicedSamples = 0
+            // 两级静音阈值，避免过度提醒又不漏真问题：
+            //  - 还没听到过说话（可能设备选错/离太远/静音）：静音 2s 就提醒（最有价值）。
+            //  - 已经听到过说话（设备正常）：正常停顿思考不该催，静音 5s 才提醒。
+            //  两种情况都每 5s 重弹一次。
+            const FIRST_WARN = this.hasDetectedVoiceThisSession ? 80000 : 32000 // 5s / 2s @16kHz
+            const REWARN_MS = 5000
             if (this.consecutiveSilentSamples >= FIRST_WARN) {
               const now = Date.now()
-              if (now - this.lastLowVolumeWarnAt >= 5000) {
+              if (now - this.lastLowVolumeWarnAt >= REWARN_MS) {
                 this.lastLowVolumeWarnAt = now
+                this.lowVolumeWarningShown = true
                 addRuntimeEvent('warn', 'recorder', '持续低音量，可能未检测到声音')
                 this.overlayService.showLowVolumeWarning()
               }
             }
           } else {
-            if (this.consecutiveSilentSamples >= 48000) {
-              this.overlayService.clearWarning()
+            // 需连续 ~0.5s（8000 采样 @16kHz）正常音量才认定“已恢复”，再清警告 + 重置静音累计。
+            // 单帧/瞬时小声音不会清掉警告，避免“一闪而逝”；用户真正开口约 0.5s 后自然消失。
+            this.consecutiveVoicedSamples += pcmFrame.length
+            const CLEAR_VOICED = 8000
+            if (this.consecutiveVoicedSamples >= CLEAR_VOICED) {
+              this.hasDetectedVoiceThisSession = true
+              if (this.lowVolumeWarningShown) {
+                this.overlayService.clearWarning()
+                this.lowVolumeWarningShown = false
+              }
+              this.consecutiveSilentSamples = 0
             }
-            this.consecutiveSilentSamples = 0
           }
         },
       ),
@@ -1480,7 +1508,10 @@ export class RecorderOrchestrator {
 
     if (!hasText) {
       if (this.state === 'processing') {
-        this.resetToIdle()
+        // 结果为空（未检测到有效声音）：给一个明确的悬浮窗提示再收尾，
+        // 而不是悄悄关闭让用户困惑。keepOverlay 让提示留到它自己的计时器隐藏。
+        this.overlayService.showNoSpeech()
+        this.resetToIdle({ keepOverlay: true })
       }
       return
     }

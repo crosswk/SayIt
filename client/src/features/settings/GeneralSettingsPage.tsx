@@ -5,9 +5,10 @@ import { refreshPTTSetting } from '@/services/webviewKeyboardFallback'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { Download, FolderOpen, Check } from 'lucide-react'
+import { Download, FolderOpen, Check, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Tooltip } from '@/components/ui/tooltip'
 import { listMicrophones } from '@/services/audio'
 import { exportAllDataBundle, exportSettings } from '@/services/exports'
 import { refreshRecorderSettings } from '@/services/recorder'
@@ -158,10 +159,18 @@ export default function GeneralSettingsPage() {
       <div className="space-y-6">
         <Card>
           <CardContent className="p-6">
-            <h2 className="mb-4 text-lg font-semibold">键盘快捷键</h2>
+            <div className="mb-4 flex items-center gap-1.5">
+              <h2 className="text-lg font-semibold">键盘快捷键</h2>
+              <Tooltip
+                variant="light"
+                content={'设置快捷键小提示：\n• 可绑定单键、组合键、鼠标侧键或中键。\n• 建议选平时少用的键，避免与常用操作冲突（组合键会自动检测占用）。\n• 绑定鼠标侧键 / 中键后，其原功能（侧键前进/后退、中键开新标签页/自动滚动）会被占用。'}
+              >
+                <Info className="h-3.5 w-3.5 shrink-0 cursor-help text-muted-foreground/50 transition-colors hover:text-muted-foreground" />
+              </Tooltip>
+            </div>
             <div className="space-y-4">
-              <ComboShortcutInput value={handsFreeKey} onChange={handleHandsFreeChange} label="免提模式" description="按一次开始，再按一次结束，支持单键、组合键或鼠标侧键" />
-              <PTTShortcutInput value={pttKey} onChange={handlePTTChange} label="按住说话" description="按住按键开始录音，松开结束，支持单个按键或鼠标侧键" />
+              <ComboShortcutInput value={handsFreeKey} onChange={handleHandsFreeChange} label="免提模式" description="按一次开始，再按一次结束，支持单键、组合键或鼠标侧键 / 中键" />
+              <PTTShortcutInput value={pttKey} onChange={handlePTTChange} label="按住说话" description="按住按键开始录音，松开结束，支持单键或鼠标侧键 / 中键" />
             </div>
           </CardContent>
         </Card>

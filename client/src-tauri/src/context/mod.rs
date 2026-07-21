@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(windows)]
 use windows::Win32::Foundation::HWND;
@@ -142,6 +142,10 @@ impl ContextDetector {
                 APP.with(|a| {
                     if let Some(app) = a.borrow().as_ref() {
                         let _ = app.emit("active-app-context", &ctx);
+                        // 前台窗口切换后，若悬浮窗正显示，立即把它重新顶回最上层——
+                        // 覆盖「用户切到/打开 PotPlayer 等置顶程序把悬浮窗压下去」的场景。
+                        app.state::<crate::window::WindowState>()
+                            .reassert_overlay_topmost_if_visible(app);
                     }
                 });
 

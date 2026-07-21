@@ -20,6 +20,8 @@ export function PTTShortcutInput({
   description: string
 }) {
   const [recording, setRecording] = useState(false)
+  // 仅在"本次刚绑定中键"后提示一次；重进页面（组件重挂载）不再显示。
+  const [showMiddleHint, setShowMiddleHint] = useState(false)
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     event.preventDefault()
@@ -27,6 +29,7 @@ export function PTTShortcutInput({
 
     const mapped = resolveSingleKeyShortcut(event.code)
     if (mapped) {
+      setShowMiddleHint(false)
       onChange(mapped)
       setRecording(false)
     }
@@ -41,6 +44,7 @@ export function PTTShortcutInput({
     const off = bridge.onMouseShortcutCaptured(({ setting }) => {
       if (!setting) return
       setRecording(false)
+      setShowMiddleHint(setting === 'MButton')
       // 侧键：延迟提交（延迟触发钩子重配），让本次物理“松开”先被当前钩子吞掉。
       // 否则重配钩子的空档期会把这次“抬起”漏给 webview——后退键会导致页面返回。
       window.setTimeout(() => onChange(setting), 400)
@@ -55,6 +59,7 @@ export function PTTShortcutInput({
   const displayName = value ? getSingleKeyDisplay(value) : '未设置'
 
   return (
+    <div>
     <div className="flex items-center justify-between gap-4">
       <div>
         <p className="text-sm font-medium">{label}</p>
@@ -88,6 +93,12 @@ export function PTTShortcutInput({
         )}
       </div>
     </div>
+    {showMiddleHint && value === 'MButton' && (
+      <p className="mt-1.5 text-xs text-amber-500">
+        已绑定鼠标中键，其打开新标签页 / 自动滚动等原功能将被占用。
+      </p>
+    )}
+    </div>
   )
 }
 
@@ -108,6 +119,8 @@ export function ComboShortcutInput({
   const [recording, setRecording] = useState(false)
   const [tempValue, setTempValue] = useState('')
   const [conflict, setConflict] = useState(false)
+  // 仅在"本次刚绑定中键"后提示一次；重进页面（组件重挂载）不再显示。
+  const [showMiddleHint, setShowMiddleHint] = useState(false)
   // 一次录制只提交/探测一次：松开组合键会产生多个 keyup，
   // 若不加守卫会对同一组合键重复调用 test_shortcut，第二次因“自己刚注册”而误报冲突。
   const committingRef = useRef(false)
@@ -173,6 +186,7 @@ export function ComboShortcutInput({
         committingRef.current = true
         setRecording(false)
         setTempValue('')
+        setShowMiddleHint(setting === 'MButton')
         // 见 PTT 处说明：延迟提交，避免重配钩子的空档期把侧键“抬起”漏给 webview。
         window.setTimeout(() => onChange(setting), 400)
       })
@@ -240,6 +254,9 @@ export function ComboShortcutInput({
       </div>
       {conflict && (
         <p className="mt-1.5 text-xs text-destructive">该组合键可能已被其他程序占用，请更换后重试</p>
+      )}
+      {showMiddleHint && value === 'MButton' && (
+        <p className="mt-1.5 text-xs text-amber-500">已绑定鼠标中键，其打开新标签页 / 自动滚动等原功能将被占用。</p>
       )}
     </div>
   )

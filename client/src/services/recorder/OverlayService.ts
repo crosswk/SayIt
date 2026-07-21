@@ -180,7 +180,7 @@ export class OverlayService {
     if (this.activeWarning) return
     void bridge.updateOverlay({
       state: 'listening',
-      warning: '音量过低，请靠近麦克风',
+      warning: '请靠近麦克风',
       elapsedSec: clampSec(this.getElapsedSec()),
       ...this.getCommonPayload(),
     })
@@ -234,6 +234,7 @@ export class OverlayService {
     void bridge.presentOverlay({
       state: 'toast',
       toastText: `已切换到「${name}」`,
+      toastTone: 'info',
       ...this.getCommonPayload(),
     })
     this.clearFallbackHideTimer()
@@ -241,6 +242,22 @@ export class OverlayService {
       void bridge.hideOverlay()
       this.clearFallbackHideTimer()
     }, 1600)
+  }
+
+  /** 识别结果为空（未检测到有效声音）时的提示。停留约 2.5s 再自动隐藏，
+   *  避免悬浮窗一闪而逝，让用户明白“这次没听到有效声音”而不是一头雾水。 */
+  showNoSpeech() {
+    void bridge.presentOverlay({
+      state: 'toast',
+      toastText: '未检测到有效声音',
+      toastTone: 'warn',
+      ...this.getCommonPayload(),
+    })
+    this.clearFallbackHideTimer()
+    this.fallbackHideId = setTimeout(() => {
+      void bridge.hideOverlay()
+      this.clearFallbackHideTimer()
+    }, 1500)
   }
 
   /** 显示错误信息，几秒后自动隐藏 */

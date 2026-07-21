@@ -122,6 +122,7 @@ impl WindowState {
             self.emit_latest(app, true);
         }
         spawn_render_watchdog(app.clone(), show_id);
+        spawn_topmost_keeper(app.clone(), show_id);
         show_id
     }
 
@@ -265,6 +266,20 @@ impl WindowState {
             && self.last_ack_generation.load(Ordering::SeqCst) == generation
     }
 
+    /// 本次 show_id 是否仍是当前正在显示的（不区分 generation，供置顶守护线程判断是否继续）。
+    fn is_showing(&self, show_id: u64) -> bool {
+        show_id != 0 && self.active_show_id.load(Ordering::SeqCst) == show_id
+    }
+
+    /// 悬浮窗正显示时，把它重新顶到 topmost 带最上层。供前台窗口切换钩子调用，
+    /// 让用户切到/打开别的置顶程序时，悬浮窗立即回到最上面。
+    pub fn reassert_overlay_topmost_if_visible(&self, app: &AppHandle) {
+        if self.active_show_id.load(Ordering::SeqCst) == 0 {
+            return;
+        }
+        reassert_overlay_topmost(app);
+    }
+
     fn is_active(&self, show_id: u64, generation: u64) -> bool {
         self.active_show_id.load(Ordering::SeqCst) == show_id
             && self.active_generation.load(Ordering::SeqCst) == generation
@@ -359,6 +374,9 @@ impl WindowState {
         let position_error = self.apply_native_layout(app, &overlay, &layout);
         let show_error = overlay.show().err().map(|error| format!("{:?}", error));
         let top_error = overlay.set_always_on_top(true).err().map(|error| format!("{:?}", error));
+        // set_always_on_top(true) 在状态未变时可能是 no-op，这里再用原生 SetWindowPos 强制
+        // 把窗口顶到 topmost 带最上层，确保即使下方已有别的置顶窗口也能压过它。
+        reassert_overlay_topmost(app);
         set_overlay_interactivity(&overlay, layout.is_interactive());
 
         let snapshot = overlay_window_snapshot(app);
@@ -510,6 +528,69 @@ impl WindowState {
         }
     }
 }
+/// 把悬浮窗重新顶到 topmost 带的最上层。
+///
+/// 为什么需要：`WS_EX_TOPMOST` 只保证在普通窗口之上；多个 topmost 窗口之间，谁最后
+/// 被显示/激活/SetWindowPos 谁就在上面。悬浮窗只在显示那一刻抢了一次置顶，之后若有
+/// 别的 topmost 窗口（PotPlayer「总在最前」、会议共享工具条、PowerToys 置顶窗等）出现
+/// 或被重新激活，就会盖住它。这里用原生 `SetWindowPos(HWND_TOPMOST)` 主动把自己重新顶上去。
+///
+/// 关键：
+/// - 带 `SWP_NOACTIVATE`，绝不抢焦点（悬浮窗设计上永不激活）。
+/// - 直接用原生 SetWindowPos，而不是 Tauri 的 `set_always_on_top(true)`——后者在状态未变
+///   (true→true) 时可能是 no-op，不会真正下发 SetWindowPos，起不到重新抬升的作用。
+#[cfg(windows)]
+fn reassert_overlay_topmost(app: &AppHandle) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+
+    let Some(overlay) = app.get_webview_window("overlay") else { return; };
+    // 通过 isize 中转重建 HWND，规避 tauri 与本 crate 各自 windows 版本的 HWND 类型不一致。
+    let hwnd_raw = match overlay.hwnd() {
+        Ok(h) => h.0 as isize,
+        Err(_) => return,
+    };
+    if hwnd_raw == 0 {
+        return;
+    }
+    let hwnd = HWND(hwnd_raw as *mut _);
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn reassert_overlay_topmost(_app: &AppHandle) {}
+
+/// 悬浮窗显示期间，周期性地把它重新顶到最上层，兜住「显示后才出现/重申置顶的窗口」。
+/// 只在本次 show_id 仍是当前显示时运行；一旦切到下一次显示或隐藏（active_show_id 变化）即退出。
+fn spawn_topmost_keeper(app: AppHandle, show_id: u64) {
+    let _ = thread::Builder::new()
+        .name(format!("overlay-topmost-{}", show_id))
+        .spawn(move || {
+            let state = app.state::<WindowState>();
+            // 首次快速重申一次（覆盖「悬浮窗弹出时下方已有 PotPlayer 等置顶窗」的场景）。
+            reassert_overlay_topmost(&app);
+            loop {
+                thread::sleep(Duration::from_millis(400));
+                if !state.is_showing(show_id) {
+                    return;
+                }
+                reassert_overlay_topmost(&app);
+            }
+        });
+}
+
 fn spawn_render_watchdog(app: AppHandle, show_id: u64) {
     let _ = thread::Builder::new()
         .name(format!("overlay-watchdog-{}", show_id))
