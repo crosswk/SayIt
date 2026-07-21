@@ -13,9 +13,61 @@ import TextFormatSection from '@/components/TextFormatSection'
 
 type Tab = 'hotwords' | 'replacement'
 
+/** 超过该数量的热词总数时，给出"过多可能反而降低准确率"的软提示 */
+const HOTWORD_SOFT_LIMIT = 200
+/** 单个分类内词条超过该数量时折叠，只显示前 N 个 + 展开按钮，避免一大片平铺 */
+const CHIPS_COLLAPSE_LIMIT = 30
+
+/** 词条标签列表：数量多时折叠（搜索中不折叠，避免藏起匹配项）。 */
+function WordChips({
+  words,
+  onRemove,
+  expandAll = false,
+}: {
+  words: string[]
+  onRemove: (word: string) => void
+  expandAll?: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const overflow = words.length > CHIPS_COLLAPSE_LIMIT
+  const shown = expanded || expandAll || !overflow ? words : words.slice(0, CHIPS_COLLAPSE_LIMIT)
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {shown.map((word) => (
+          <span
+            key={word}
+            className="inline-flex items-center gap-1 rounded-md border bg-secondary/50 px-2 py-0.5 text-xs"
+          >
+            {word}
+            <button
+              onClick={() => onRemove(word)}
+              className="rounded-full p-0.5 transition-colors hover:bg-destructive/10 hover:text-destructive"
+              aria-label={`删除 ${word}`}
+            >
+              <X className="h-2.5 w-2.5 text-muted-foreground" />
+            </button>
+          </span>
+        ))}
+      </div>
+      {overflow && !expandAll && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {expanded ? '收起' : `展开全部（共 ${words.length} 个）`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function Dictionary() {
   const [tab, setTab] = useState<Tab>('hotwords')
   const [exportMessage, setExportMessage] = useState('')
+  const [warnDismissed, setWarnDismissed] = useState(false)
   const {
     hotwords,
     builtinSetWords,
@@ -125,11 +177,47 @@ export default function Dictionary() {
             <span>热词可提升语音识别对专有名词和行业术语的准确率。</span>
             <Tooltip
               variant="light"
-              content={'各模型热词支持情况：\n· 豆包 Seed-ASR 2.0：支持。关闭实时字幕时最准；开启实时字幕（双向流式）时热词效果略弱。\n· 千问 qwen3-asr-flash-realtime（实时）：支持，效果较好。\n· 千问 qwen3-asr-flash（非实时）：支持，效果一般。\n· 本地 Qwen3-ASR：支持。\n· 本地 SenseVoice：不支持热词。\n· 服务器模式：支持，效果较好。\n\n注意：热词只提高识别命中概率，并不保证 100% 准确。'}
+              content={
+                <div className="text-left">
+                  <p className="mb-1.5 font-medium">各模型对热词的支持</p>
+                  <table className="border-collapse text-xs [&_td]:py-0.5 [&_td]:pr-3 [&_td]:align-top [&_th]:pb-1 [&_th]:pr-3 [&_th]:text-left [&_th]:font-normal [&_th]:text-muted-foreground/70">
+                    <thead>
+                      <tr><th>模型</th><th>热词</th><th>说明</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr><td>豆包 Seed-ASR 2.0</td><td>支持</td><td>关实时字幕最准；开启时约仅前 100 token 生效</td></tr>
+                      <tr><td>千问 flash-realtime（实时）</td><td>支持</td><td>效果较好，约 10000 tokens</td></tr>
+                      <tr><td>千问 flash（非实时）</td><td>支持</td><td>效果一般</td></tr>
+                      <tr><td>本地 Qwen3-ASR</td><td>支持</td><td>变动会重建模型，过多变慢</td></tr>
+                      <tr><td>本地 SenseVoice</td><td>不支持</td><td>—</td></tr>
+                      <tr><td>服务器模式</td><td>支持</td><td>效果较好</td></tr>
+                    </tbody>
+                  </table>
+                  <p className="mt-2 max-w-[340px] leading-relaxed">
+                    热词只提高<span className="font-semibold">命中概率</span>，不保证 100% 准确；且<span className="font-semibold">并非越多越好</span>——过多反而会稀释效果。
+                  </p>
+                </div>
+              }
             >
               <Info className="h-3.5 w-3.5 shrink-0 cursor-help text-muted-foreground/50 transition-colors hover:text-muted-foreground" />
             </Tooltip>
           </p>
+
+          {hotwords.length > HOTWORD_SOFT_LIMIT && !warnDismissed && (
+            <div className="mb-4 -mt-2 flex items-start gap-2 text-xs text-amber-500">
+              <p>
+                当前已有 <span className="font-semibold">{hotwords.length}</span> 个热词，<span className="font-semibold">热词并非越多越好</span>，建议精选常用术语。
+              </p>
+              <button
+                type="button"
+                onClick={() => setWarnDismissed(true)}
+                className="shrink-0 rounded p-0.5 text-amber-500/70 transition-colors hover:bg-amber-500/10 hover:text-amber-500"
+                aria-label="关闭提示"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
 
           {/* 新建热词分类 */}
           <div className="mb-4 flex items-center gap-2">
@@ -225,23 +313,7 @@ export default function Dictionary() {
                           </div>
 
                           {activeWords.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {activeWords.map((word) => (
-                                <span
-                                  key={word}
-                                  className="inline-flex items-center gap-1 rounded-md border bg-secondary/50 px-2 py-0.5 text-xs"
-                                >
-                                  {word}
-                                  <button
-                                    onClick={() => void removeWord(word)}
-                                    className="rounded-full p-0.5 transition-colors hover:bg-destructive/10 hover:text-destructive"
-                                    aria-label={`删除 ${word}`}
-                                  >
-                                    <X className="h-2.5 w-2.5 text-muted-foreground" />
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
+                            <WordChips words={activeWords} onRemove={removeWord} expandAll={!!search} />
                           )}
                         </div>
                       )}
@@ -288,23 +360,7 @@ export default function Dictionary() {
                       </div>
 
                       {active && activeWords.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {activeWords.map((word) => (
-                            <span
-                              key={word}
-                              className="inline-flex items-center gap-1 rounded-md border bg-secondary/50 px-2 py-0.5 text-xs"
-                            >
-                              {word}
-                              <button
-                                onClick={() => void removeWord(word)}
-                                className="rounded-full p-0.5 transition-colors hover:bg-destructive/10 hover:text-destructive"
-                                aria-label={`删除 ${word}`}
-                              >
-                                <X className="h-2.5 w-2.5 text-muted-foreground" />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
+                        <WordChips words={activeWords} onRemove={removeWord} expandAll={!!search} />
                       )}
                     </CardContent>
                   </Card>
@@ -332,23 +388,7 @@ export default function Dictionary() {
                     </button>
 
                     {showUnknown && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {filteredUnknown.map((word) => (
-                          <span
-                            key={word}
-                            className="inline-flex items-center gap-1 rounded-md border bg-secondary/50 px-2 py-0.5 text-xs"
-                          >
-                            {word}
-                            <button
-                              onClick={() => void removeWord(word)}
-                              className="rounded-full p-0.5 transition-colors hover:bg-destructive/10 hover:text-destructive"
-                              aria-label={`删除 ${word}`}
-                            >
-                              <X className="h-2.5 w-2.5 text-muted-foreground" />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
+                      <WordChips words={filteredUnknown} onRemove={removeWord} expandAll={!!search} />
                     )}
                   </CardContent>
                 </Card>

@@ -2,7 +2,7 @@ import { ReactNode, useState, useRef, useLayoutEffect, useCallback } from 'react
 import { createPortal } from 'react-dom'
 
 interface TooltipProps {
-  content: string
+  content: ReactNode
   children: ReactNode
   className?: string
   forceVisible?: boolean
