@@ -109,8 +109,17 @@ describe('convertChineseNumbers', () => {
     expect(convertChineseNumbers('一二三四五')).toBe('一二三四五')
   })
 
-  it('不误伤时间「两点半」', () => {
-    expect(convertChineseNumbers('下午两点半开会')).toBe('下午两点半开会')
+  it('时间：数字转阿拉伯，保留点/分/半', () => {
+    expect(convertChineseNumbers('上午九点三十二分')).toBe('上午9点32分')
+    expect(convertChineseNumbers('九点二十分开会')).toBe('9点20分开会')
+    expect(convertChineseNumbers('下午两点半开会')).toBe('下午2点半开会')
+    expect(convertChineseNumbers('上午九点开会')).toBe('上午9点开会')
+    expect(convertChineseNumbers('十九点三十分')).toBe('19点30分')
+  })
+
+  it('时间：无「分」的复合分钟也按时间处理（不再出现 9.3十 之类乱码）', () => {
+    expect(convertChineseNumbers('九点三十')).toBe('9点30')
+    expect(convertChineseNumbers('九点二十开会')).toBe('9点20开会')
   })
 
   it('空文本安全', () => {

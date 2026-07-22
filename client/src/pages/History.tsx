@@ -526,6 +526,7 @@ export default function History() {
         onDelete={handleDelete}
         onToggleFavorite={handleToggleFavorite}
         onReprocess={handleReprocess}
+        highlight={debouncedKeyword}
         emptyText={keyword.trim() ? '没有匹配的历史记录' : favoriteOnly ? '还没有收藏记录，去历史记录里点一下星标吧。' : '还没有记录，去语音工作台试试吧'}
       />
 

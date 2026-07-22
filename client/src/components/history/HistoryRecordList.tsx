@@ -26,6 +26,8 @@ interface HistoryRecordListProps {
   onToggleFavorite?: (id: string, nextFavorite: boolean) => Promise<void> | void
   onReprocess?: (record: HistoryRecord) => Promise<void> | void
   emptyText?: string
+  /** 搜索关键词：在正文与 ASR 原文里高亮命中处 */
+  highlight?: string
 }
 
 function getDayLabel(ts: number): string {
@@ -47,16 +49,42 @@ function formatTime(ts: number): string {
   return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
+/** 把 text 中命中 keyword 的子串用 <mark> 高亮（大小写不敏感，用 indexOf 避免正则特殊字符问题）。 */
+function highlightText(text: string, keyword: string) {
+  const kw = keyword.trim()
+  if (!kw) return text
+  const lower = text.toLowerCase()
+  const kwLower = kw.toLowerCase()
+  const parts: Array<string | JSX.Element> = []
+  let from = 0
+  let idx = lower.indexOf(kwLower, from)
+  let key = 0
+  while (idx !== -1) {
+    if (idx > from) parts.push(text.slice(from, idx))
+    parts.push(
+      <mark key={key++} className="rounded-sm bg-amber-200/70 px-0.5 text-inherit dark:bg-amber-500/30">
+        {text.slice(idx, idx + kw.length)}
+      </mark>,
+    )
+    from = idx + kw.length
+    idx = lower.indexOf(kwLower, from)
+  }
+  if (from < text.length) parts.push(text.slice(from))
+  return parts
+}
+
 function HistoryItem({
   record,
   onDelete,
   onToggleFavorite,
   onReprocess,
+  highlight = '',
 }: {
   record: HistoryRecord
   onDelete: () => void
   onToggleFavorite?: (nextFavorite: boolean) => void
   onReprocess?: () => Promise<void> | void
+  highlight?: string
 }) {
   const [expanded, setExpanded] = useState(false)
   const [audioPlaying, setAudioPlaying] = useState(false)
@@ -261,10 +289,10 @@ function HistoryItem({
             >
               {text.includes('\n') ? (
                 text.split(/\n{2,}/).map((para, idx) => (
-                  <p key={idx} className={idx > 0 ? 'mt-1.5' : undefined}>{para}</p>
+                  <p key={idx} className={idx > 0 ? 'mt-1.5' : undefined}>{highlightText(para, highlight)}</p>
                 ))
               ) : (
-                <p>{text}</p>
+                <p>{highlightText(text, highlight)}</p>
               )}
             </div>
           )}
@@ -279,7 +307,7 @@ function HistoryItem({
               {!isEmpty && record.asrText && (
                 <div className="text-muted-foreground">
                   <span className="font-medium">ASR 原文：</span>
-                  <span className="whitespace-pre-line">{record.asrText}</span>
+                  <span className="whitespace-pre-line">{highlightText(record.asrText, highlight)}</span>
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
@@ -488,12 +516,14 @@ function DayGroup({
   onDelete,
   onToggleFavorite,
   onReprocess,
+  highlight,
 }: {
   label: string
   records: HistoryRecord[]
   onDelete: (id: string) => void
   onToggleFavorite?: (id: string, nextFavorite: boolean) => Promise<void> | void
   onReprocess?: (record: HistoryRecord) => Promise<void> | void
+  highlight?: string
 }) {
   return (
     <Card>
@@ -507,6 +537,7 @@ function DayGroup({
               onDelete={() => onDelete(record.id)}
               onToggleFavorite={onToggleFavorite ? (next) => onToggleFavorite(record.id, next) : undefined}
               onReprocess={onReprocess ? () => onReprocess(record) : undefined}
+              highlight={highlight}
             />
           ))}
         </div>
@@ -521,6 +552,7 @@ export default function HistoryRecordList({
   onToggleFavorite,
   onReprocess,
   emptyText = '还没有记录，去语音工作台试试吧',
+  highlight,
 }: HistoryRecordListProps) {
   const grouped = useMemo(() => {
     return records.reduce((acc, record) => {
@@ -559,6 +591,7 @@ export default function HistoryRecordList({
           onDelete={onDelete}
           onToggleFavorite={onToggleFavorite}
           onReprocess={onReprocess}
+          highlight={highlight}
         />
       ))}
     </div>

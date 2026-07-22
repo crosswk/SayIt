@@ -142,11 +142,59 @@ export function convertChineseNumbers(text: string): string {
     },
   )
 
+  // 2.5 时间表达：必须在小数规则之前处理，避免「点」被当成小数点。
+  //     时/分数字转阿拉伯，保留「点/分/半」标记（如 九点三十二分 → 9点32分）。
+  const TIME_HOUR = '零一二两三四五六七八九十'
+  const TIME_MIN = '零一二两三四五六七八九十'
+  const DIGITS_NO_TEN = '零一二两三四五六七八九'
+
+  // 合法小时：单字数字，或含「十」的复合（十 / 十二 / 二十三…），范围 0–24。
+  // 借「含十」排除「一二三」这类逐位串（parseChineseInteger 对它们会给出误导性结果）。
+  const validHour = (s: string): number | null => {
+    if (s.length > 1 && !s.includes('十')) return null
+    const h = parseChineseInteger(s)
+    return h === null || h < 0 || h > 24 ? null : h
+  }
+
+  // 2.5a 时间：X点半 / X点Y分 / X点[含十的分钟]（九点半→9点半、九点三十二分→9点32分、九点三十→9点30）
+  result = result.replace(
+    new RegExp(
+      `([${TIME_HOUR}]+)点(半|[${TIME_MIN}]+分(?!之)|[${DIGITS_NO_TEN}]*十[${DIGITS_NO_TEN}]*)`,
+      'g',
+    ),
+    (m: string, hourStr: string, tail: string) => {
+      const hour = validHour(hourStr)
+      if (hour === null) return m
+      if (tail === '半') return `${hour}点半`
+      if (tail.endsWith('分')) {
+        const min = parseChineseInteger(tail.slice(0, -1))
+        return min === null || min < 0 || min > 59 ? m : `${hour}点${min}分`
+      }
+      // 含「十」的分钟、无「分」（九点三十 → 9点30）
+      const min = parseChineseInteger(tail)
+      return min === null || min < 0 || min > 59 ? m : `${hour}点${min}`
+    },
+  )
+
+  // 2.5b 整点：X点（后面不跟数字/点）→ 9点（如 上午九点 → 上午9点）。
+  //      「点」后跟数字的（三点一四）留给小数规则，避免误伤。
+  result = result.replace(
+    new RegExp(`([${TIME_HOUR}]+)点(?![${DIGIT_CHARS}点])`, 'g'),
+    (m: string, hourStr: string, offset: number, str: string) => {
+      const hour = validHour(hourStr)
+      return hour === null ? m : maybeSpace(str, offset, `${hour}点`)
+    },
+  )
+
   // 3. 小数 / 多段点分数字：数字点数字(点数字)* → N.N 或 N.N.N
   //    单段是普通小数（三点一四 → 3.14）；多段是版本号等（零点一点零 → 0.1.0），每段逐位读。
   result = result.replace(
     new RegExp(`([${NUM_CHARS}]+)((?:点[${DIGIT_CHARS}]+)+)`, 'g'),
     (m: string, intp: string, rest: string, offset: number, str: string) => {
+      // 护栏：小数尾数若紧跟位值词/时间词（说明被截断，或其实是时间/量词），不转，保留中文。
+      // 例：九点三十（无「分」）→ 匹配到「九点三」，其后是「十」→ 跳过，宁留中文也不产出 9.3十。
+      const after = str[offset + m.length] || ''
+      if (after && '十百千万亿分时点刻秒'.includes(after)) return m
       const intVal = parseChineseInteger(intp)
       if (intVal === null) return m
       const groups = rest.split('点').filter((g: string) => g.length > 0)
@@ -249,7 +297,7 @@ const STORAGE_KEY = 'textPostProcess'
 
 export const DEFAULT_POST_PROCESS: TextPostProcessOptions = {
   autoSegment: true,
-  normalizeNumbers: false,
+  normalizeNumbers: true,
   stripTrailingPunctuation: false,
   punctuationToSpace: false,
 }
