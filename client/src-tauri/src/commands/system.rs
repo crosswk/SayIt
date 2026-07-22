@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::storage::Storage;
 use std::io::Write;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use base64::Engine;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -148,7 +149,7 @@ fn get_total_memory_mb() -> u64 {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct ClientRuntimeInfo {
     #[serde(rename = "userId")]
     pub user_id: String,
@@ -172,8 +173,14 @@ pub struct ClientRuntimeInfo {
     pub memory_mb: u64,
 }
 
+static RUNTIME_INFO_CACHE: OnceLock<ClientRuntimeInfo> = OnceLock::new();
+
 #[tauri::command]
 pub fn get_client_runtime_info(storage: State<Storage>) -> Result<ClientRuntimeInfo, String> {
+    if let Some(cached) = RUNTIME_INFO_CACHE.get() {
+        return Ok(cached.clone());
+    }
+
     let hostname = hostname::get()
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
@@ -195,7 +202,7 @@ pub fn get_client_runtime_info(storage: State<Storage>) -> Result<ClientRuntimeI
         new_id
     };
 
-    Ok(ClientRuntimeInfo {
+    let info = ClientRuntimeInfo {
         user_id: user_name.clone(),
         user_name,
         device_id,
@@ -207,7 +214,9 @@ pub fn get_client_runtime_info(storage: State<Storage>) -> Result<ClientRuntimeI
         system_locale: get_system_locale(),
         cpu_cores: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
         memory_mb: get_total_memory_mb(),
-    })
+    };
+    let _ = RUNTIME_INFO_CACHE.set(info.clone());
+    Ok(info)
 }
 
 #[tauri::command]
