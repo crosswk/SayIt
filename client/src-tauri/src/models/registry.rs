@@ -147,6 +147,7 @@ pub async fn download_model(
                 &file.name,
                 &file.url,
                 file.size_bytes,
+                file.sha256.as_deref(),
                 &dest_dir,
                 (i + 1) as u32,
                 file_count,

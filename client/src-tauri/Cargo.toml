@@ -41,7 +41,7 @@ once_cell = "1"
 flate2 = "1"
 tar = "0.4"
 bzip2 = "0.4"
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "macros", "time"] }
 silero-vad-crs = { version = "=0.4.0", features = ["auto"] }
 # GGUF / ggml 本地 ASR 引擎（transcribe.cpp 的官方 Rust 绑定，MIT）。
 # dynamic-backends：各计算后端编成可 dlopen 的模块（隐含 shared，libtranscribe
