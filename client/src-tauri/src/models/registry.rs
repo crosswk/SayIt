@@ -122,6 +122,7 @@ pub async fn download_model(
         .ok_or_else(|| error_protocol::encode("download_failed", format!("Unknown model: {}", model_id)))?;
 
     let dest_dir = downloader::model_dir(&model_id);
+    let _download_lease = downloader::acquire_model_path(&dest_dir)?;
 
     // 如果模型有 archive_url，使用 tar.bz2 下载+解压
     if let Some(ref archive_url) = model.archive_url {
@@ -175,6 +176,7 @@ pub async fn download_model(
 #[tauri::command]
 pub fn delete_model(model_id: String) -> Result<(), String> {
     let model_path = downloader::model_dir(&model_id);
+    let _delete_lease = downloader::acquire_model_path(&model_path)?;
     if model_path.exists() {
         std::fs::remove_dir_all(&model_path)
             .map_err(|e| format!("Failed to delete model: {}", e))?;
@@ -287,6 +289,13 @@ pub async fn set_models_dir(
     let new_dir = match &trimmed {
         Some(d) => std::path::PathBuf::from(d),
         None => downloader::default_models_dir(),
+    };
+
+    // 迁移、切换生效路径和持久化必须作为一个整体与下载/删除互斥。
+    let _storage_lease = if new_dir != old_dir {
+        Some(downloader::acquire_model_storage()?)
+    } else {
+        None
     };
 
     // 目标与当前一致：仅确保持久化的设置与之同步，不做迁移。

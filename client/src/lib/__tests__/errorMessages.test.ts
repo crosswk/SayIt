@@ -118,4 +118,16 @@ describe('describeDownloadError', () => {
   it('校验失败建议换源重下', () => {
     expect(describeDownloadError('sha256 mismatch').action).toBe('switch_source')
   })
+
+  it('重复下载只建议稍后重试，不误导用户切换下载源', () => {
+    const result = describeDownloadError('sayit_error:download_busy:already downloading')
+    expect(result.code).toBe('download_busy')
+    expect(result.action).toBe('retry')
+  })
+
+  it('远端大小与目录不一致时建议切换下载源', () => {
+    const result = describeDownloadError('sayit_error:download_source_mismatch:size changed')
+    expect(result.code).toBe('download_source_mismatch')
+    expect(result.action).toBe('switch_source')
+  })
 })

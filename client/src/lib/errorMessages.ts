@@ -25,6 +25,8 @@ export type FriendlyErrorCode =
   | 'provider_rate_limit'
   | 'provider_no_model'
   | 'download_network'
+  | 'download_busy'
+  | 'download_source_mismatch'
   | 'download_no_space'
   | 'download_permission'
   | 'download_checksum'
@@ -62,6 +64,8 @@ const FRIENDLY_ERROR_CODES = new Set<FriendlyErrorCode>([
   'provider_rate_limit',
   'provider_no_model',
   'download_network',
+  'download_busy',
+  'download_source_mismatch',
   'download_no_space',
   'download_permission',
   'download_checksum',
@@ -230,6 +234,22 @@ export function describeProviderError(error: unknown): FriendlyError {
 export function describeDownloadError(error: unknown): FriendlyError {
   const { code: stableCode, text } = decodeError(error)
 
+  if (stableCode === 'download_busy') {
+    return {
+      code: 'download_busy',
+      message: t('err.download.generic'),
+      detail: text,
+      action: 'retry',
+    }
+  }
+  if (stableCode === 'download_source_mismatch') {
+    return {
+      code: 'download_source_mismatch',
+      message: t('err.download.checksum'),
+      detail: text,
+      action: 'switch_source',
+    }
+  }
   if (stableCode === 'download_network' || isTimeout(text) || isNetworkFailure(text)) {
     return {
       code: 'download_network',

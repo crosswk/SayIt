@@ -307,7 +307,7 @@ pub fn get_available_models() -> Vec<ModelInfo> {
 //    这套转换所用的架构标签（如 `sensevoice`）。换了会在加载时报
 //    "unsupported architecture (status 5)"，下载/校验和都正常也没用。
 //    要换源，只能转存"transcribe.cpp 兼容"的那一份（就像现在这样），而不是另找重转的。
-//    size_bytes 会被下载器用于完整性校验，务必与实际文件一致；sha256 目前只作记录。
+//    size_bytes 会在下载前与服务器报告值核对；sha256 会在入库前校验完整文件，二者都必须准确。
 
 const PARAKEET_UNIFIED_EN_Q4: GgufWeight = GgufWeight {
     repo: "cswk/sayit-asr-gguf",
