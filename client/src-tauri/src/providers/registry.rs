@@ -157,7 +157,7 @@ pub async fn cloud_transcribe(request: CloudTranscribeRequest) -> Result<AsrResu
         // 别看着都叫「OpenAI 兼容」就并过去（地址、请求体、响应形状全不一样）。
         // qwen_chat_audio 地址内置为百炼（qwen3.8-omni-flash 走这条）；
         // openai_chat_audio 是 asr_openai_compat 分发下来的内部 key。
-        "qwen_chat_audio" | "openai_chat_audio" => {
+        "qwen_chat_audio" | "openai_chat_audio" | "openai_chat_audio_standard" => {
             asr_openai_chat_audio::transcribe(
                 &request.audio_b64,
                 request.sample_rate,
@@ -326,7 +326,7 @@ pub async fn test_asr_connection(config: AsrProviderConfig) -> Result<TestResult
         "groq_whisper" | "openai_transcribe" | "openai_compat_transcribe" => {
             Ok(asr_groq::test_connection(&config).await)
         }
-        "qwen_chat_audio" | "openai_chat_audio" => {
+        "qwen_chat_audio" | "openai_chat_audio" | "openai_chat_audio_standard" => {
             Ok(asr_openai_chat_audio::test_connection(&config).await)
         }
         "openai_compat" => Ok(asr_openai_compat::test_connection(&config).await),

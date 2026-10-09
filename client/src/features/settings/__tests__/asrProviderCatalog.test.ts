@@ -71,7 +71,7 @@ describe('ASR_PROVIDERS 结构性不变量', () => {
       'groq_whisper', 'openai_transcribe', 'openai_live_transcribe',
       'gemini_transcribe', 'gemini_live_transcribe', 'openrouter_transcribe',
       // chat/completions + input_audio 那一套（asr_openai_chat_audio.rs）
-      'qwen_chat_audio', 'openai_chat_audio',
+      'qwen_chat_audio', 'openai_chat_audio', 'openai_chat_audio_standard',
       // /audio/transcriptions、地址由用户填（asr_groq.rs 的 OPENAI_COMPAT 档）
       'openai_compat_transcribe',
       // 协议卡的分发层：探测出协议后再转给上面两组之一（asr_openai_compat.rs）
@@ -841,9 +841,10 @@ describe('asrEndpointUrl', () => {
 })
 
 describe('parseAsrCompatProtocol', () => {
-  it('只认两个显式值，其余一律当自动', () => {
+  it('只认三个显式值，其余一律当自动', () => {
     expect(parseAsrCompatProtocol('transcriptions')).toBe('transcriptions')
     expect(parseAsrCompatProtocol('chat')).toBe('chat')
+    expect(parseAsrCompatProtocol('chat_standard')).toBe('chat_standard')
     for (const junk of ['auto', '', 'nope', undefined, null, 42, {}]) {
       expect(parseAsrCompatProtocol(junk)).toBe('auto')
     }

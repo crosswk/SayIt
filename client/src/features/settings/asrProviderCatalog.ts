@@ -57,20 +57,21 @@ export const ASR_PLATFORMS: Record<AsrPlatform, AsrPlatformInfo> = {
  * 这两套协议都被叫做「OpenAI 兼容」，但地址、请求体、响应形状完全不同：
  *   · `transcriptions` → `/audio/transcriptions`，multipart 传文件，响应 `{"text": ...}`。
  *     OpenAI 自己、Groq、硅基流动、whisper.cpp / faster-whisper / FunASR 的包装都是这套。
- *   · `chat`           → `/chat/completions`，音频作为 `input_audio` 内容项塞进 messages。
- *     阿里云百炼的语音模型走这套。
+ *   · `chat`           → `/chat/completions`，阿里云百炼 data URL 字符串。
+ *   · `chat_standard`  → `/chat/completions`，标准 OpenAI `input_audio.data`（裸 base64）
+ *     与 `input_audio.format`。兼容 Gemini 等使用标准 OpenAI 格式的网关。
  *
  * **默认是 `auto`，让代码自己试出来。** 协议是端点的属性、不是用户的偏好 ——
  * 要用户先去翻对方文档才知道该选哪个，等于把我们的实现细节推给他承担。
- * 两个显式值留作退路：探测判不准时（比如填的模型名只在其中一种协议下有效，
+ * 显式值留作退路：探测判不准时（比如填的模型名只在其中一种协议下有效，
  * 另一种的失败就不是协议原因）用户得能直接指定。
  */
-export type AsrCompatProtocol = 'auto' | 'transcriptions' | 'chat'
+export type AsrCompatProtocol = 'auto' | 'transcriptions' | 'chat' | 'chat_standard'
 
-export const ASR_COMPAT_PROTOCOLS: AsrCompatProtocol[] = ['auto', 'transcriptions', 'chat']
+export const ASR_COMPAT_PROTOCOLS: AsrCompatProtocol[] = ['auto', 'transcriptions', 'chat', 'chat_standard']
 
 export function parseAsrCompatProtocol(value: unknown): AsrCompatProtocol {
-  return value === 'transcriptions' || value === 'chat' ? value : 'auto'
+  return value === 'transcriptions' || value === 'chat' || value === 'chat_standard' ? value : 'auto'
 }
 
 /**

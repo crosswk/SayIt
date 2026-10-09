@@ -71,7 +71,7 @@ export interface AsrConfigExtra extends Record<string, unknown> {
   /** 自定义端点地址。空 = 用实现里内置的官方地址 */
   baseUrl?: string
   /**
-   * 「OpenAI 兼容」那张卡说哪种协议：`transcriptions` / `chat`。
+   * 「OpenAI 兼容」那张卡说哪种协议：`transcriptions` / `chat` / `chat_standard`。
    * 不带这个字段 = 让 Rust 侧自己探测（默认的 `auto` 就不往下传）。
    */
   protocol?: string

@@ -6,17 +6,18 @@
 // `dev-scripts/probe_bailian_openai_audio.py`）：
 //   · `/audio/transcriptions`：multipart 传文件，响应 `{"text": ...}` —— asr_groq.rs
 //   · `/chat/completions`：音频作为 `input_audio` 塞进 messages —— asr_openai_chat_audio.rs
+//     对话接口有两种音频形态：百炼 data URL 字符串、标准 OpenAI data/format 对象。
 //
 // 这里曾经做成两张卡、让用户自己选。否掉了：**用户没办法知道自己要连的服务说哪种协议**，
 // 他得去翻对方文档，或者两张卡轮流试。那是把我们的实现细节推给用户承担。
-// 所以合成一张卡，协议默认 `auto` 由这里试出来；`extra.protocol` 的两个显式值
-// （`transcriptions` / `chat`）留作探测判不准时的手动退路。
+// 所以合成一张卡，协议默认 `auto` 由这里试出来；`extra.protocol` 的三个显式值
+// （`transcriptions` / `chat` / `chat_standard`）留作探测判不准时的手动退路。
 //
 // ## 探测只在进程内做一次
 //
 // 结果按「地址 + 模型」缓存在进程里，与 AI 润色那边「记住这个端点不接受某参数」
 // 是同一个套路（见 `.kiro/decisions.md`「默认替所有 OpenAI 兼容端点关闭思考」）。
-// 所以最坏情况是每个端点每次启动多一个失败请求，而不是每次转写都探两遍。
+// 所以最坏情况是每个端点每次启动多两个失败请求，而不是每次转写都重新探测。
 //
 // ⚠️ 不要把探测改成「先发一个轻量请求试路由」：那会在正常路径上凭空多一次往返。
 // 现在的做法是拿**真实的那次转写**去试，成功了顺手记住。
@@ -31,6 +32,7 @@ const SCOPE: &str = "openai-compat/dispatch";
 /// 内部分发 key：交给 asr_groq / asr_openai_chat_audio 时换成它们认识的 provider id。
 const AS_TRANSCRIPTIONS: &str = "openai_compat_transcribe";
 const AS_CHAT: &str = "openai_chat_audio";
+const AS_CHAT_STANDARD: &str = "openai_chat_audio_standard";
 
 /// 「这个地址 + 这个模型」上次是哪种协议成功的。
 ///
@@ -84,6 +86,7 @@ fn explicit_protocol(config: &AsrProviderConfig) -> Option<&'static str> {
     match config.extra.get("protocol").and_then(|v| v.as_str()) {
         Some("transcriptions") => Some(AS_TRANSCRIPTIONS),
         Some("chat") => Some(AS_CHAT),
+        Some("chat_standard") => Some(AS_CHAT_STANDARD),
         _ => None,
     }
 }
@@ -119,7 +122,7 @@ async fn run(
     hotwords: &[String],
 ) -> Result<AsrResult, String> {
     let scoped = with_provider(config, provider);
-    if provider == AS_CHAT {
+    if provider == AS_CHAT || provider == AS_CHAT_STANDARD {
         super::asr_openai_chat_audio::transcribe(audio_pcm_b64, sample_rate, &scoped, hotwords).await
     } else {
         super::asr_groq::transcribe(audio_pcm_b64, sample_rate, &scoped, hotwords).await
@@ -172,22 +175,27 @@ pub async fn transcribe(
             Ok(result)
         }
         Err(second_error) => {
-            // 两边都失败：报**更可能是真正原因**的那一条。第一条像「路由不存在」
-            // 而第二条不像，说明协议其实是 chat、错在别处（密钥、模型名），
-            // 那就报第二条；否则报第一条。
-            let show_second =
-                looks_like_wrong_route(&first_error) && !looks_like_wrong_route(&second_error);
-            diag::log(
-                SCOPE,
-                "both_failed",
-                &format!(
-                    "reporting={} transcriptions_error={} chat_error={}",
-                    if show_second { "chat" } else { "transcriptions" },
-                    diag::truncate(&first_error, 200),
-                    diag::truncate(&second_error, 200),
-                ),
-            );
-            Err(if show_second { second_error } else { first_error })
+            // 百炼 data URL 不一定能被兼容网关解析；换标准 OpenAI 对象再试一次。
+            match run(AS_CHAT_STANDARD, audio_pcm_b64, sample_rate, config, hotwords).await {
+                Ok(result) => {
+                    remember_protocol(&key, AS_CHAT_STANDARD);
+                    diag::log(SCOPE, "detected", "protocol=chat_standard");
+                    Ok(result)
+                }
+                Err(standard_error) => {
+                    // 优先反馈标准格式的真实错误；但别用它的 404
+                    // 覆盖另一个协议更具体的报错。
+                    let error = if !looks_like_wrong_route(&standard_error) {
+                        standard_error
+                    } else if !looks_like_wrong_route(&second_error) {
+                        second_error
+                    } else {
+                        first_error
+                    };
+                    diag::log(SCOPE, "all_failed", &format!("error={}", diag::truncate(&error, 200)));
+                    Err(error)
+                }
+            }
         }
     }
 }
@@ -212,15 +220,23 @@ pub async fn test_connection(config: &AsrProviderConfig) -> TestResult {
         remember_protocol(&key, AS_CHAT);
         return labelled(AS_CHAT, second);
     }
-    // 都不通：同上，报更可能是真正原因的那一条。
-    let show_second =
-        looks_like_wrong_route(&first.message) && !looks_like_wrong_route(&second.message);
-    if show_second { second } else { first }
+    let third = run_test(AS_CHAT_STANDARD, config).await;
+    if third.ok {
+        remember_protocol(&key, AS_CHAT_STANDARD);
+        return labelled(AS_CHAT_STANDARD, third);
+    }
+    if !looks_like_wrong_route(&third.message) {
+        third
+    } else if !looks_like_wrong_route(&second.message) {
+        second
+    } else {
+        first
+    }
 }
 
 async fn run_test(provider: &str, config: &AsrProviderConfig) -> TestResult {
     let scoped = with_provider(config, provider);
-    if provider == AS_CHAT {
+    if provider == AS_CHAT || provider == AS_CHAT_STANDARD {
         super::asr_openai_chat_audio::test_connection(&scoped).await
     } else {
         super::asr_groq::test_connection(&scoped).await
@@ -233,7 +249,9 @@ async fn run_test(provider: &str, config: &AsrProviderConfig) -> TestResult {
 /// 否则自动探测就是个黑盒，出问题时他连该查哪半边都不知道。
 fn labelled(provider: &str, mut result: TestResult) -> TestResult {
     if result.ok {
-        let name = if provider == AS_CHAT {
+        let name = if provider == AS_CHAT_STANDARD {
+            "/chat/completions (standard input_audio)"
+        } else if provider == AS_CHAT {
             "/chat/completions"
         } else {
             "/audio/transcriptions"
@@ -242,7 +260,7 @@ fn labelled(provider: &str, mut result: TestResult) -> TestResult {
         // transcriptions 的 prompt 被标点引导占用了），而用户看到「连接成功」时
         // 最容易顺带以为热词也生效了。issue #67 的原话是「避免连接成功后仍让用户
         // 误以为热词已生效」。能力判定在 capabilities.rs，这里只是把它说出来。
-        let hotwords = if provider == AS_CHAT {
+        let hotwords = if provider == AS_CHAT || provider == AS_CHAT_STANDARD {
             "hotwords: sent as context"
         } else {
             "hotwords: not sent on this protocol"
@@ -270,6 +288,10 @@ mod tests {
         assert_eq!(
             explicit_protocol(&config(serde_json::json!({ "protocol": "chat" }))),
             Some(AS_CHAT),
+        );
+        assert_eq!(
+            explicit_protocol(&config(serde_json::json!({ "protocol": "chat_standard" }))),
+            Some(AS_CHAT_STANDARD),
         );
         assert_eq!(
             explicit_protocol(&config(serde_json::json!({ "protocol": "transcriptions" }))),

@@ -6,18 +6,20 @@
 // 「OpenAI 兼容」这四个字在语音这块同时指这两套东西，而它们的地址、请求体、响应
 // 形状全都不一样。合成一份实现的话，用户填错地址只会得到一个含义模糊的 404/400。
 //
-// 覆盖两个 provider id：
+// 覆盖三个 provider id：
 //   · `qwen_chat_audio`    → 地址内置为百炼，给千问卡里的 qwen3.8-omni-flash 用
-//   · `openai_chat_audio`  → 地址由用户填（「OpenAI 兼容（对话式）」那张卡）
+//   · `openai_chat_audio`  → 自定义地址，百炼 data URL 形态（兼容旧配置）
+//   · `openai_chat_audio_standard` → 自定义地址，标准 OpenAI input_audio 对象
 //
 // ## 实测记录（2026-09-18，真实账号，dev-scripts/probe_bailian_openai_audio.py）
 //
-// * `input_audio` **必须装 data URL**。两种写法都行：
+// * 百炼的 `input_audio` **必须装 data URL**。两种写法都行：
 //       {"type":"input_audio","input_audio":"data:audio/wav;base64,AAA..."}
 //       {"type":"input_audio","input_audio":{"data":"data:audio/wav;base64,AAA...","format":"wav"}}
 //   裸 base64 放进 `data` 会被拒，而且错误信息**极具误导性**：
 //       400 invalid_parameter_error "The provided URL does not appear to be valid."
-//   这句话里没有任何线索指向「少了 data: 前缀」。所以下面一律拼 data URL。
+//   这句话里没有任何线索指向「少了 data: 前缀」。百炼模式保留 data URL，
+//   标准 OpenAI 模式才改为裸 base64 对象。
 // * **不需要流式。** qwen3-asr-flash 与 qwen3.8-omni-flash 非流式都回 200，
 //   所以这份实现不带 SSE 解析器。
 // * 通用域名与业务空间专属域名都能用，故 workspaceId 对这条路是可选的。
@@ -63,7 +65,7 @@ const CUSTOM: Endpoint = Endpoint {
 
 fn endpoint_for(provider: &str) -> &'static Endpoint {
     match provider {
-        "openai_chat_audio" => &CUSTOM,
+        "openai_chat_audio" | "openai_chat_audio_standard" => &CUSTOM,
         _ => &QWEN,
     }
 }
@@ -173,20 +175,36 @@ fn pcm_to_wav(pcm: &[u8], sr: u32) -> Vec<u8> {
     w
 }
 
+/// 百炼接受 data URL 字符串；标准 OpenAI Chat Completions 要求
+/// `input_audio: { data: "<base64>", format: "wav" }`。
+/// 保留旧模式，避免修改已有 Qwen 配置的请求格式。
+#[derive(Clone, Copy)]
+enum AudioPayloadFormat {
+    DataUrl,
+    OpenAi,
+}
+
+fn audio_payload_format(provider: &str) -> AudioPayloadFormat {
+    if provider == "openai_chat_audio_standard" {
+        AudioPayloadFormat::OpenAi
+    } else {
+        AudioPayloadFormat::DataUrl
+    }
+}
+
 /// 组请求体。
-///
-/// `input_audio` 用「裸字符串装 data URL」那种写法：两种都实测可用，而字符串这版
-/// 与百炼文档里的类型声明（`input_audio string`）一致，兼容网关照文档实现的概率更高。
 fn build_body(
     model: &str,
     wav: &[u8],
     instruction: Option<&str>,
     language: Option<&str>,
+    audio_format: AudioPayloadFormat,
 ) -> serde_json::Value {
-    let data_url = format!(
-        "data:audio/wav;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(wav)
-    );
+    let data = base64::engine::general_purpose::STANDARD.encode(wav);
+    let input_audio = match audio_format {
+        AudioPayloadFormat::DataUrl => serde_json::json!(format!("data:audio/wav;base64,{}", data)),
+        AudioPayloadFormat::OpenAi => serde_json::json!({ "data": data, "format": "wav" }),
+    };
     let mut messages = Vec::new();
     if let Some(text) = instruction {
         messages.push(serde_json::json!({
@@ -196,7 +214,7 @@ fn build_body(
     }
     messages.push(serde_json::json!({
         "role": "user",
-        "content": [{ "type": "input_audio", "input_audio": data_url }],
+        "content": [{ "type": "input_audio", "input_audio": input_audio }],
     }));
 
     let mut body = serde_json::json!({ "model": model, "messages": messages });
@@ -248,6 +266,7 @@ pub async fn transcribe(
 
     let model = resolve_model(config, endpoint);
     let url = resolve_url(config, endpoint)?;
+    let audio_format = audio_payload_format(&config.provider);
     let language = resolve_language(config);
     let audio_sec = pcm.len() as f64 / (sample_rate.max(1) as f64 * 2.0);
     let wav = pcm_to_wav(&pcm, sample_rate);
@@ -262,7 +281,7 @@ pub async fn transcribe(
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .or_else(|| {
-            needs_transcribe_instruction(&model)
+            (needs_transcribe_instruction(&model) || matches!(audio_format, AudioPayloadFormat::OpenAi))
                 .then(|| DEFAULT_TRANSCRIBE_INSTRUCTION.to_string())
         });
     if let Some(ctx) = super::asr_qwen::build_hotword_context_text(hotwords) {
@@ -284,7 +303,7 @@ pub async fn transcribe(
         ),
     );
 
-    let body = build_body(&model, &wav, instruction.as_deref(), language.as_deref());
+    let body = build_body(&model, &wav, instruction.as_deref(), language.as_deref(), audio_format);
     let client = super::http_client::shared();
     let start = Instant::now();
 
@@ -357,6 +376,7 @@ pub async fn transcribe(
 pub async fn test_connection(config: &AsrProviderConfig) -> TestResult {
     let endpoint = endpoint_for(&config.provider);
     let model = resolve_model(config, endpoint);
+    let audio_format = audio_payload_format(&config.provider);
     let url = match resolve_url(config, endpoint) {
         Ok(u) => u,
         Err(e) => {
@@ -366,9 +386,9 @@ pub async fn test_connection(config: &AsrProviderConfig) -> TestResult {
 
     // 0.5s 静音：够过服务端的「音频太短」门槛，又几乎不花钱。
     let wav = pcm_to_wav(&vec![0u8; 16000], 16000);
-    let instruction = needs_transcribe_instruction(&model)
+    let instruction = (needs_transcribe_instruction(&model) || matches!(audio_format, AudioPayloadFormat::OpenAi))
         .then_some(DEFAULT_TRANSCRIBE_INSTRUCTION);
-    let body = build_body(&model, &wav, instruction, None);
+    let body = build_body(&model, &wav, instruction, None, audio_format);
 
     let client = super::http_client::shared();
     let start = Instant::now();
@@ -462,12 +482,31 @@ mod tests {
     /// 音频必须是 data URL。裸 base64 会被服务端拒，而报错说的是「URL 无效」，
     /// 完全看不出少了前缀 —— 所以这条得钉住。
     #[test]
-    fn audio_is_sent_as_a_data_url() {
-        let body = build_body("qwen3-asr-flash", &pcm_to_wav(&[0, 0, 0, 0], 16000), None, None);
+    fn legacy_audio_is_sent_as_a_data_url() {
+        let body = build_body("qwen3-asr-flash", &pcm_to_wav(&[0, 0, 0, 0], 16000), None, None, AudioPayloadFormat::DataUrl);
         let audio = body["messages"][0]["content"][0]["input_audio"]
             .as_str()
             .expect("input_audio must be a string");
         assert!(audio.starts_with("data:audio/wav;base64,"), "got {}", &audio[..40.min(audio.len())]);
+    }
+
+    #[test]
+    fn standard_audio_is_sent_as_an_openai_object_with_raw_base64() {
+        let wav = pcm_to_wav(&[1, 2, 3, 4], 16000);
+        let body = build_body("gemini-example", &wav, Some(DEFAULT_TRANSCRIBE_INSTRUCTION), None, AudioPayloadFormat::OpenAi);
+        let audio = &body["messages"][1]["content"][0]["input_audio"];
+        assert_eq!(audio["format"], "wav");
+        let data = audio["data"].as_str().expect("input_audio.data must be a string");
+        assert!(!data.starts_with("data:"), "OpenAI input_audio.data needs raw base64");
+        assert_eq!(base64::engine::general_purpose::STANDARD.decode(data).unwrap(), wav);
+        assert_eq!(body["messages"][0]["role"], "system");
+    }
+
+    #[test]
+    fn payload_format_is_selected_by_provider() {
+        assert!(matches!(audio_payload_format("openai_chat_audio_standard"), AudioPayloadFormat::OpenAi));
+        assert!(matches!(audio_payload_format("openai_chat_audio"), AudioPayloadFormat::DataUrl));
+        assert!(matches!(audio_payload_format("qwen_chat_audio"), AudioPayloadFormat::DataUrl));
     }
 
     /// Omni 是对话模型，不给指令它会回答想象出来的问题（实测拿到过
@@ -481,11 +520,11 @@ mod tests {
         assert!(!needs_transcribe_instruction("qwen3-asr-flash"));
         assert!(!needs_transcribe_instruction("whisper-1"));
 
-        let omni = build_body("qwen3.8-omni-flash", &[], Some(DEFAULT_TRANSCRIBE_INSTRUCTION), None);
+        let omni = build_body("qwen3.8-omni-flash", &[], Some(DEFAULT_TRANSCRIBE_INSTRUCTION), None, AudioPayloadFormat::DataUrl);
         assert_eq!(omni["messages"][0]["role"], "system");
         assert_eq!(omni["messages"][1]["role"], "user");
 
-        let asr = build_body("qwen3-asr-flash", &[], None, None);
+        let asr = build_body("qwen3-asr-flash", &[], None, None, AudioPayloadFormat::DataUrl);
         assert_eq!(asr["messages"][0]["role"], "user");
         assert!(asr["messages"].as_array().unwrap().len() == 1);
     }
@@ -497,9 +536,9 @@ mod tests {
         let explicit = config_for("qwen_chat_audio", serde_json::json!({ "language": "zh" }));
         assert_eq!(resolve_language(&explicit).as_deref(), Some("zh"));
 
-        let body = build_body("qwen3-asr-flash", &[], None, Some("zh"));
+        let body = build_body("qwen3-asr-flash", &[], None, Some("zh"), AudioPayloadFormat::DataUrl);
         assert_eq!(body["asr_options"]["language"], "zh");
-        let without = build_body("qwen3-asr-flash", &[], None, None);
+        let without = build_body("qwen3-asr-flash", &[], None, None, AudioPayloadFormat::DataUrl);
         assert!(without.get("asr_options").is_none());
     }
 

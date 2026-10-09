@@ -151,6 +151,7 @@ pub const ALL_ASR_PROVIDERS: &[&str] = &[
     "openai_compat",
     "openai_compat_transcribe",
     "openai_chat_audio",
+    "openai_chat_audio_standard",
     "gemini_transcribe",
     "gemini_live_transcribe",
     "openrouter_transcribe",
@@ -190,7 +191,7 @@ fn buffered_delivery(provider: &str, extra: &Value) -> HotwordDelivery {
         // asr_qwen_omni → 追加到 system instructions
         "qwen_omni" => HotwordDelivery::Instruction,
         // asr_openai_chat_audio → 复用 asr_qwen 的上下文文本，追加到 instruction
-        "qwen_chat_audio" | "openai_chat_audio" => HotwordDelivery::Instruction,
+        "qwen_chat_audio" | "openai_chat_audio" | "openai_chat_audio_standard" => HotwordDelivery::Instruction,
         // asr_gemini::build_prompt → 拼一段 vocabulary 提示
         "gemini_transcribe" | "gemini_live_transcribe" => HotwordDelivery::Instruction,
         // asr_mimo：OpenAI chat/completions 兼容，协议有 instruction 位置
@@ -215,7 +216,7 @@ fn buffered_delivery(provider: &str, extra: &Value) -> HotwordDelivery {
         // auto 要等探测（结果在 asr_openai_compat 的 PROTOCOL_CACHE 里）。
         "openai_compat" => match extra.get("protocol").and_then(Value::as_str) {
             // → asr_openai_chat_audio，走 instruction
-            Some("chat") => HotwordDelivery::Instruction,
+            Some("chat") | Some("chat_standard") => HotwordDelivery::Instruction,
             // → asr_groq，prompt 被标点占用
             Some("transcriptions") => HotwordDelivery::NotWiredUp,
             // auto：探过就给准话，没探过才说"未确定"。
@@ -458,6 +459,10 @@ mod tests {
 
         assert_eq!(
             hotword_capability("openai_compat", &json!({ "protocol": "chat" })).buffered,
+            HotwordDelivery::Instruction,
+        );
+        assert_eq!(
+            hotword_capability("openai_compat", &json!({ "protocol": "chat_standard" })).buffered,
             HotwordDelivery::Instruction,
         );
         assert_eq!(

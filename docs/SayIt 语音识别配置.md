@@ -139,15 +139,16 @@ Omni 都不支持实时字幕（整段说完再出结果）。
 **配置方式**
 
 - **接口地址**：填到 `/v1` 为止即可，例如 `http://127.0.0.1:8000/v1`；填完整路径（`…/v1/audio/transcriptions`）也认。前提是服务确实在该地址上运行。
-- **接口协议**：默认「自动识别」，由 SayIt 用第一次真实转写试出来。「OpenAI 兼容」在语音这块其实是两套不同协议，自动识别判不准时可以手动指定：
+- **接口协议**：默认「自动识别」，由 SayIt 用第一次真实转写试出来。文件转写与对话式转写是不同协议；后者又有两种不兼容的音频载荷。自动识别判不准时可以手动指定：
   - `transcriptions` → `POST /v1/audio/transcriptions`，multipart 上传文件。自建的 whisper.cpp、faster-whisper、FunASR 都是这一套。
-  - `chat` → `POST /v1/chat/completions`，音频作为 `input_audio` 放进 messages。阿里云百炼走这一套。
+  - `chat` → `POST /v1/chat/completions`，音频作为 data URL 字符串放进 `input_audio`。阿里云百炼走这一套；已有设置继续使用此格式。
+  - `chat_standard` → `POST /v1/chat/completions`，音频作为 `input_audio: { "data": "<base64>", "format": "wav" }`。标准 OpenAI-compatible 音频接口及 Gemini 网关通常要求这一套。
   - 这两条都不是 FunASR 自己的 WebSocket 实时服务，那套协议不同，SayIt 不通过这张卡接入。
 - **模型名**：按目标服务 `GET /v1/models` 返回的值填。注意 `whisper-1` 在不少实现里只是映射到启动时所选模型的兼容别名，填了它并不代表加载的是 Whisper。
 
 **热词**
 
-走 `transcriptions` 这条协议时**不发送热词**。这条接口唯一能放词表的 `prompt` 字段被 SayIt 用于中文标点引导了（没有它，中文短句一个标点都不会有）。走 `chat` 时会把热词拼进指令一起发送。
+走 `transcriptions` 这条协议时**不发送热词**。这条接口唯一能放词表的 `prompt` 字段被 SayIt 用于中文标点引导了（没有它，中文短句一个标点都不会有）。走 `chat` 或 `chat_standard` 时会把热词拼进指令一起发送。
 
 点「测试连接」会显示探测到的是哪一种协议，并一并说明热词是否发送。
 
