@@ -12,6 +12,7 @@
  */
 
 import { IS_MAC } from '@/lib/platform'
+import { DEFAULT_CUSTOM_WAVE } from '@/lib/overlayWaveColors'
 
 export const DEFAULTS: Record<string, unknown> = {
 
@@ -130,7 +131,10 @@ export const DEFAULTS: Record<string, unknown> = {
   'server.language': 'auto',
 
   // ── 悬浮窗 ──
-  overlayWaveTheme: 'black-rainbow', // 可选: 'black-rainbow' | 'black-blue' | 'black-white'
+  overlayWaveTheme: 'black-rainbow', // 可选: 'black-rainbow' | 'black-blue' | 'black-white' | 'custom'
+  // 波形主题选 'custom' 时用的配色：{ mode: 'solid' | 'gradient', from: '#rrggbb', to: '#rrggbb' }。
+  // 太暗的颜色在黑底胶囊上会被自动调亮，见 lib/overlayWaveColors.ts。
+  overlayWaveCustom: DEFAULT_CUSTOM_WAVE,
   overlayShowDuration: true, // 是否显示录音时长。可选: true | false
   overlayWidth: 'short', // 可选: 'short' | 'medium' | 'long'
 

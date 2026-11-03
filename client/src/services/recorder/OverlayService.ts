@@ -4,6 +4,12 @@ import { addRuntimeEvent } from '../debugLog'
 import { getSetting } from '../store'
 import { clampSec } from '../timeModel'
 import {
+  DEFAULT_CUSTOM_WAVE,
+  normalizeCustomWave,
+  normalizeWaveTheme,
+  type CustomWaveColors,
+} from '@/lib/overlayWaveColors'
+import {
   formatRecordingLimit,
   OVERLAY_WIDTH_PRESETS,
   type OverlayCommonPayload,
@@ -64,13 +70,6 @@ interface MicSourceHint {
 
 const MIC_SOURCE_HINT_DURATION_MS = 3000
 
-function normalizeTheme(value: unknown): OverlayWaveTheme {
-  if (value === 'black-white' || value === 'black-blue' || value === 'black-rainbow') {
-    return value
-  }
-  return 'black-blue'
-}
-
 function normalizeWidthPreset(value: unknown): OverlayWidthPreset {
   if (value === 'short' || value === 'medium' || value === 'long') return value
   return 'long'
@@ -78,6 +77,7 @@ function normalizeWidthPreset(value: unknown): OverlayWidthPreset {
 
 export class OverlayService {
   private theme: OverlayWaveTheme = 'black-rainbow'
+  private customWave: CustomWaveColors = DEFAULT_CUSTOM_WAVE
   private showDuration = true
   private readySoundEnabled = true
   private widthPreset: OverlayWidthPreset = 'medium'
@@ -124,7 +124,8 @@ export class OverlayService {
   constructor(private readonly getElapsedSec: () => number) { }
 
   async refreshSettings() {
-    this.theme = normalizeTheme(await getSetting('overlayWaveTheme', 'black-rainbow'))
+    this.theme = normalizeWaveTheme(await getSetting('overlayWaveTheme', 'black-rainbow'), 'black-blue')
+    this.customWave = normalizeCustomWave(await getSetting('overlayWaveCustom', DEFAULT_CUSTOM_WAVE))
     this.showDuration = Boolean(await getSetting('overlayShowDuration', true))
     this.readySoundEnabled = Boolean(await getSetting('readySoundEnabled', true))
     this.widthPreset = normalizeWidthPreset(await getSetting('overlayWidth', 'medium'))
@@ -181,6 +182,7 @@ export class OverlayService {
     const cfg = OVERLAY_WIDTH_PRESETS[this.widthPreset]
     return {
       theme: this.theme,
+      customWave: this.customWave,
       showDuration: this.showDuration,
       baseWidth: cfg.windowWidth,
       barCount: cfg.barCount,

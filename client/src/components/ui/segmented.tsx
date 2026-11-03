@@ -22,7 +22,8 @@ interface SegmentedProps<T> {
   value: T
   options: ReadonlyArray<SegmentedOption<T>>
   onChange: (value: T) => void
-  size?: 'sm' | 'md'
+  /** xs：附在一行内容末尾的次要切换（如自定义波形的单色 / 渐变），比 sm 再小一号 */
+  size?: 'xs' | 'sm' | 'md'
   /** 整组禁用（如切换计算后端时正在重载模型） */
   disabled?: boolean
   /** Whether option color changes should animate. */
@@ -62,7 +63,7 @@ export function Segmented<T extends string | number>({
               'inline-flex items-center justify-center rounded-lg font-medium outline-none disabled:pointer-events-none disabled:opacity-50',
               'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               animated && 'transition-colors',
-              size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-8 px-3 text-sm',
+              size === 'xs' ? 'h-6 rounded-md px-2 text-xs' : size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-8 px-3 text-sm',
               isActive
                 ? 'bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.13]'
                 : 'bg-transparent text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground',

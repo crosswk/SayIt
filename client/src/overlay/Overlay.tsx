@@ -6,6 +6,17 @@ import { useT } from '@/i18n/useT'
 import { addRuntimeEvent } from '../services/debugLog'
 import { formatRecordingTimer } from '../services/recorder/types'
 import { IS_MAC } from '@/lib/platform'
+import {
+  buildWavePalette,
+  DEFAULT_CUSTOM_WAVE,
+  getWaveThinkingColor,
+  getWaveTimerColor,
+  normalizeCustomWave,
+  normalizeWaveTheme,
+  sameCustomWave,
+  type CustomWaveColors,
+  type OverlayWaveTheme,
+} from '@/lib/overlayWaveColors'
 
 /**
  * `blank` 什么都不渲染，只在**隐藏窗口之前**用一下。
@@ -31,13 +42,12 @@ type OverlayState =
 /** 失败卡上那句恢复提示：只有确实存下来了才敢说"可以重新识别"。 */
 type FailureRecovery = 'unknown' | 'history' | 'none'
 type RecordingVisualPhase = 'preparing' | 'listening'
-type OverlayWaveTheme = 'black-white' | 'black-blue' | 'black-rainbow'
-
 interface OverlayPayload {
   state?: OverlayState
   bars?: number[]
   elapsedSec?: number
   theme?: OverlayWaveTheme
+  customWave?: CustomWaveColors
   showDuration?: boolean
   barCount?: number
   fallbackText?: string
@@ -70,43 +80,6 @@ interface OverlayPayload {
 const DEFAULT_BAR_COUNT = 24
 const IDLE_BARS = Array(DEFAULT_BAR_COUNT).fill(3)
 
-function normalizeTheme(theme: unknown): OverlayWaveTheme {
-  if (theme === 'black-white' || theme === 'black-blue' || theme === 'black-rainbow') {
-    return theme
-  }
-  return 'black-blue'
-}
-
-function getListeningBarColor(index: number, total: number, theme: OverlayWaveTheme): string {
-  const safeTotal = Math.max(1, total - 1)
-  const t = index / safeTotal
-
-  if (theme === 'black-white') {
-    return '#f1f5f9'
-  }
-
-  if (theme === 'black-rainbow') {
-    const hue = 140 - Math.round(t * 110)
-    const lightness = 64 - Math.round(Math.abs(t - 0.5) * 12)
-    return `hsl(${hue} 95% ${lightness}%)`
-  }
-
-  const hue = 190 + Math.round(t * 30)
-  const lightness = 62 - Math.round(Math.abs(t - 0.5) * 14)
-  return `hsl(${hue} 90% ${lightness}%)`
-}
-
-function getTimerColor(theme: OverlayWaveTheme): string {
-  if (theme === 'black-white') return '#e5e7eb'
-  if (theme === 'black-rainbow') return '#fef08a'
-  return '#bae6fd'
-}
-
-function getThinkingColor(theme: OverlayWaveTheme): string {
-  if (theme === 'black-white') return '#e2e8f0'
-  if (theme === 'black-rainbow') return '#facc15'
-  return '#38bdf8'
-}
 
 export default function Overlay() {
   const t = useT()
@@ -119,6 +92,7 @@ export default function Overlay() {
   const [bars, setBars] = useState<number[]>(IDLE_BARS)
   const [elapsedSec, setElapsedSec] = useState(0)
   const [theme, setTheme] = useState<OverlayWaveTheme>('black-blue')
+  const [customWave, setCustomWave] = useState<CustomWaveColors>(DEFAULT_CUSTOM_WAVE)
   const [showDuration, setShowDuration] = useState(true)
   const [barCount, setBarCount] = useState(DEFAULT_BAR_COUNT)
   const [presentationId, setPresentationId] = useState(0)
@@ -259,7 +233,13 @@ export default function Overlay() {
         setElapsedSec(payload.elapsedSec)
       }
       if (typeof payload.showDuration === 'boolean') setShowDuration(payload.showDuration)
-      if (payload.theme) setTheme(normalizeTheme(payload.theme))
+      if (payload.theme) setTheme(normalizeWaveTheme(payload.theme, 'black-blue'))
+      if (payload.customWave) {
+        // 每帧 payload 都会带一个新对象；内容没变就保留旧引用，否则下面按配色 memo 的
+        // 调色板每帧都得重算一遍。
+        const next = normalizeCustomWave(payload.customWave)
+        setCustomWave((prev) => (sameCustomWave(prev, next) ? prev : next))
+      }
       if (typeof payload.barCount === 'number' && payload.barCount > 0) setBarCount(payload.barCount)
       if (typeof payload.fallbackText === 'string') setFallbackText(payload.fallbackText)
       if (typeof payload.fallbackReason === 'string') setFallbackReason(payload.fallbackReason)
@@ -429,10 +409,16 @@ export default function Overlay() {
     ? normalizedBars
     : normalizedBars.slice(0, barBudget)
 
+  // 录音时每秒重渲染约 30 次，配色只在主题/条数变化时才变，没必要每帧重算（自定义色要做 OKLCH 换算）。
+  const palette = useMemo(
+    () => buildWavePalette(normalizedBars.length, theme, customWave),
+    [normalizedBars.length, theme, customWave],
+  )
+  const themeTimerColor = useMemo(() => getWaveTimerColor(theme, customWave), [theme, customWave])
+  const thinkingColor = useMemo(() => getWaveThinkingColor(theme, customWave), [theme, customWave])
   const timerColor = inCountdown
     ? (urgent ? '#fb923c' : '#fbbf24')
-    : getTimerColor(theme)
-  const thinkingColor = getThinkingColor(theme)
+    : themeTimerColor
 
   const handleCopyFallback = async (source: 'button' | 'hotkey' = 'button') => {
     if (!fallbackText) return
@@ -757,7 +743,7 @@ export default function Overlay() {
                           min-w-0 仍然留着兜底：万一文字特别长，宁可裁波形也不折行。 */}
                       <div className="flex min-w-0 items-center gap-[2px] overflow-hidden" style={{ height: '20px' }}>
                         {visibleBars.map((height, index) => {
-                          const color = getListeningBarColor(index, normalizedBars.length, theme)
+                          const color = palette[index]
                           return (
                             <div
                               key={index}

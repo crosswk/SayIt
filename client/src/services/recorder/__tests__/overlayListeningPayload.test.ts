@@ -207,3 +207,21 @@ describe('就绪提示音的 AudioContext', () => {
     vi.unstubAllGlobals()
   })
 })
+
+/**
+ * 自定义配色必须随每帧下发，不管当前主题是不是 custom：原生侧对 payload 是整份替换，
+ * 只在部分帧里带的话，重放底稿时悬浮窗会回落到默认配色。
+ */
+describe('自定义波形配色', () => {
+  beforeEach(() => {
+    mocks.updateOverlay.mockClear()
+  })
+
+  it('listening 更新带着规整过的 customWave', async () => {
+    const service = new OverlayService(() => 7)
+    await service.refreshSettings()
+    service.pushListeningBars([3, 5, 8], true)
+    const payload = payloadsFrom()[0]
+    expect(payload.customWave).toEqual({ mode: 'gradient', from: '#a78bfa', to: '#f472b6' })
+  })
+})

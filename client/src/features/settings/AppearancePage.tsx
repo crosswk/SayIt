@@ -1,6 +1,6 @@
 // 外观设置页面 — 主题 + 悬浮窗样式 + 预览
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { open as shellOpen } from '@tauri-apps/plugin-shell'
 import { ExternalLink, Info } from 'lucide-react'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -12,12 +12,21 @@ import { switchTheme, getActiveThemeId } from '@/stores/theme'
 import { getSetting, setSetting } from '@/services/store'
 import { refreshOverlaySettings, setStreamingDisplayCache } from '@/services/recorder'
 import { OVERLAY_WIDTH_PRESETS, type OverlayWidthPreset } from '@/services/recorder/types'
-import { type OverlayWaveTheme } from './utils'
+import {
+  buildWavePalette,
+  DEFAULT_CUSTOM_WAVE,
+  getWaveTimerColor,
+  normalizeCustomWave,
+  normalizeWaveTheme,
+  type CustomWaveColors,
+  type OverlayWaveTheme,
+} from '@/lib/overlayWaveColors'
+import { CustomWaveEditor } from './CustomWaveEditor'
 import { type TranslationKey } from '@/i18n'
 import { useT } from '@/i18n/useT'
 
 const OVERLAY_OPTIONS: Array<{
-  theme: OverlayWaveTheme
+  theme: Exclude<OverlayWaveTheme, 'custom'>
   labelKey: TranslationKey
   barColors: string[]
 }> = [
@@ -26,6 +35,9 @@ const OVERLAY_OPTIONS: Array<{
     { theme: 'black-rainbow', labelKey: 'appearance.wave.blackRainbow', barColors: ['#4ade80', '#facc15', '#fb923c', '#f87171'] },
   ]
 
+/** 自定义配色连续拖动取色器时，写盘与刷新悬浮窗设置合并到停手之后。 */
+const CUSTOM_WAVE_SAVE_DELAY_MS = 250
+
 // 由长到短排列：从「最完整」往「最克制」读，比反过来更符合挑尺寸的直觉。
 const WIDTH_OPTIONS: Array<{ value: OverlayWidthPreset; labelKey: TranslationKey }> = [
   { value: 'long', labelKey: 'appearance.width.long' },
@@ -33,29 +45,15 @@ const WIDTH_OPTIONS: Array<{ value: OverlayWidthPreset; labelKey: TranslationKey
   { value: 'short', labelKey: 'appearance.width.short' },
 ]
 
-function getBarColor(index: number, total: number, theme: OverlayWaveTheme): string {
-  const t = index / Math.max(1, total - 1)
-  if (theme === 'black-white') return '#f1f5f9'
-  if (theme === 'black-rainbow') {
-    const hue = 140 - Math.round(t * 110)
-    const lightness = 64 - Math.round(Math.abs(t - 0.5) * 12)
-    return `hsl(${hue} 95% ${lightness}%)`
-  }
-  const hue = 190 + Math.round(t * 30)
-  const lightness = 62 - Math.round(Math.abs(t - 0.5) * 14)
-  return `hsl(${hue} 90% ${lightness}%)`
-}
-
-function getTimerColor(theme: OverlayWaveTheme): string {
-  if (theme === 'black-white') return '#e5e7eb'
-  if (theme === 'black-rainbow') return '#fef08a'
-  return '#bae6fd'
-}
-
-
-
-function OverlayPreview({ theme, showDuration, barCount, streaming }: { theme: OverlayWaveTheme; showDuration: boolean; barCount: number; streaming: boolean }) {
+function OverlayPreview({ theme, customWave, showDuration, barCount, streaming }: {
+  theme: OverlayWaveTheme
+  customWave: CustomWaveColors
+  showDuration: boolean
+  barCount: number
+  streaming: boolean
+}) {
   const t = useT()
+  const palette = useMemo(() => buildWavePalette(barCount, theme, customWave), [barCount, theme, customWave])
   const previewText = t('appearance.streamingPreviewText')
   const barRefs = useRef<Array<HTMLDivElement | null>>([])
   const [typed, setTyped] = useState('')
@@ -140,7 +138,7 @@ function OverlayPreview({ theme, showDuration, barCount, streaming }: { theme: O
       <div className="flex items-center rounded-full border border-slate-600 bg-black px-4 py-2 shadow-[0_6px_16px_rgba(0,0,0,0.35)]">
         <div className="flex items-center gap-[2px]" style={{ height: '20px' }}>
           {Array.from({ length: barCount }, (_, index) => {
-            const color = getBarColor(index, barCount, theme)
+            const color = palette[index]
             return (
               <div
                 key={index}
@@ -159,7 +157,7 @@ function OverlayPreview({ theme, showDuration, barCount, streaming }: { theme: O
         {showDuration && (
           <span
             className="ml-1.5 min-w-[24px] text-right font-mono tabular-nums text-xs"
-            style={{ color: getTimerColor(theme) }}
+            style={{ color: getWaveTimerColor(theme, customWave) }}
           >
             3.2s
           </span>
@@ -174,6 +172,8 @@ export default function AppearancePage() {
   const t = useT()
   const [activeTheme, setActiveTheme] = useState(getActiveThemeId)
   const [overlayWaveTheme, setOverlayWaveTheme] = useState<OverlayWaveTheme>('black-rainbow')
+  const [customWave, setCustomWave] = useState<CustomWaveColors>(DEFAULT_CUSTOM_WAVE)
+  const customWaveSaveRef = useRef<{ timer: ReturnType<typeof setTimeout>; value: CustomWaveColors } | null>(null)
   const [overlayShowDuration, setOverlayShowDuration] = useState(true)
   const [overlayWidth, setOverlayWidth] = useState<OverlayWidthPreset>('medium')
   const [streamingDisplay, setStreamingDisplay] = useState(false)
@@ -203,17 +203,18 @@ export default function AppearancePage() {
     //     同样可能先提交出一帧「已显示但值是默认值」。
     let cancelled = false
     void (async () => {
-      const [showDuration, streaming, waveTheme, width] = await Promise.all([
+      const [showDuration, streaming, waveTheme, waveCustom, width] = await Promise.all([
         getSetting('overlayShowDuration', true).catch(() => true),
         getSetting('streamingDisplayEnabled', false).catch(() => false),
         getSetting('overlayWaveTheme', 'black-rainbow').catch(() => 'black-rainbow'),
+        getSetting<unknown>('overlayWaveCustom', DEFAULT_CUSTOM_WAVE).catch(() => DEFAULT_CUSTOM_WAVE),
         getSetting('overlayWidth', 'medium').catch(() => 'medium'),
       ])
       if (cancelled) return
       setOverlayShowDuration(Boolean(showDuration))
       setStreamingDisplay(Boolean(streaming))
-      const t = waveTheme as OverlayWaveTheme
-      if (t === 'black-white' || t === 'black-blue' || t === 'black-rainbow') setOverlayWaveTheme(t)
+      setOverlayWaveTheme(normalizeWaveTheme(waveTheme, 'black-rainbow'))
+      setCustomWave(normalizeCustomWave(waveCustom))
       const w = width as OverlayWidthPreset
       if (w === 'short' || w === 'medium' || w === 'long') setOverlayWidth(w)
       setReady(true)
@@ -229,11 +230,43 @@ export default function AppearancePage() {
     setActiveTheme(themeId)
   }
 
+  const themeCards: Array<{ theme: OverlayWaveTheme; labelKey: TranslationKey; barColors: string[] }> = [
+    ...OVERLAY_OPTIONS,
+    // 自定义卡的色条直接取当前配色，改了颜色卡片上也跟着变
+    { theme: 'custom', labelKey: 'appearance.wave.custom', barColors: buildWavePalette(4, 'custom', customWave) },
+  ]
+
   const handleOverlayThemeChange = async (theme: OverlayWaveTheme) => {
     setOverlayWaveTheme(theme)
     await setSetting('overlayWaveTheme', theme)
     await refreshOverlaySettings()
   }
+
+  const persistCustomWave = async (value: CustomWaveColors) => {
+    await setSetting('overlayWaveCustom', value)
+    await refreshOverlaySettings()
+  }
+
+  // 预览立刻跟手，写盘合并到停手之后：拖动取色器每秒会触发几十次 onChange，
+  // 每次都写库 + 让录音器重读设置没有意义。
+  const handleCustomWaveChange = (next: CustomWaveColors) => {
+    setCustomWave(next)
+    if (customWaveSaveRef.current) clearTimeout(customWaveSaveRef.current.timer)
+    const timer = setTimeout(() => {
+      customWaveSaveRef.current = null
+      void persistCustomWave(next)
+    }, CUSTOM_WAVE_SAVE_DELAY_MS)
+    customWaveSaveRef.current = { timer, value: next }
+  }
+
+  // 停手不到 250ms 就切走页面时，把还没写盘的那次补上，否则最后一下改动会丢。
+  useEffect(() => () => {
+    const pending = customWaveSaveRef.current
+    if (!pending) return
+    clearTimeout(pending.timer)
+    customWaveSaveRef.current = null
+    void persistCustomWave(pending.value)
+  }, [])
 
   const handleToggleDuration = async () => {
     const next = !overlayShowDuration
@@ -263,13 +296,15 @@ export default function AppearancePage() {
         <Card>
           <CardContent className="p-6">
             <h2 className="mb-4 text-lg font-semibold">{t('appearance.appTheme')}</h2>
-            <div className="grid gap-3 sm:grid-cols-3">
+            {/* 按最小宽度自动分列：固定三列时，窗口拉到最窄（800）英文界面的「Light / Dark / Warm」会撑出卡片外 */}
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-3">
               {themeList.map((theme) => (
                 <button
                   key={theme.id}
                   type="button"
+                  aria-pressed={activeTheme === theme.id}
                   onClick={() => void handleThemeChange(theme.id)}
-                  className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${activeTheme === theme.id
+                  className={`flex items-center gap-3 rounded-lg border p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${activeTheme === theme.id
                     ? 'border-primary bg-primary/5'
                     : 'border-border hover:bg-accent'
                     }`}
@@ -300,20 +335,22 @@ export default function AppearancePage() {
             <div className="space-y-4" style={ready ? undefined : { visibility: 'hidden' }}>
               <div>
                 <p className="mb-2 text-sm text-muted-foreground">{t('appearance.waveTheme')}</p>
-                <div className="grid gap-2 sm:grid-cols-3" style={ready ? undefined : { visibility: 'hidden' }}>
-                  {OVERLAY_OPTIONS.map((option) => (
+                {/* 四张卡：默认窗口宽度下排成一行；窗口拉窄到 lg 以下时两两一行，免得「黑底彩色」和色条挤在一起 */}
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" style={ready ? undefined : { visibility: 'hidden' }}>
+                  {themeCards.map((option) => (
                     <button
                       key={option.theme}
                       type="button"
+                      aria-pressed={overlayWaveTheme === option.theme}
                       onClick={() => void handleOverlayThemeChange(option.theme)}
-                      className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm ${animate ? 'transition-colors' : ''} ${overlayWaveTheme === option.theme
+                      className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${animate ? 'transition-colors' : ''} ${overlayWaveTheme === option.theme
                         ? 'border-primary bg-primary/5'
                         : 'border-border hover:bg-accent'
                         }`}
                     >
                       {/* 选中只靠边框和底色表示；原来的圆点和边框是同一个意思说了两遍 */}
                       <span className={overlayWaveTheme === option.theme ? 'font-medium' : ''}>{t(option.labelKey)}</span>
-                      <span className="flex gap-0.5">
+                      <span className="flex shrink-0 gap-0.5">
                         {option.barColors.map((c, i) => (
                           <span key={i} className="h-3 w-1 rounded-sm" style={{ backgroundColor: c }} />
                         ))}
@@ -321,6 +358,10 @@ export default function AppearancePage() {
                     </button>
                   ))}
                 </div>
+
+                {overlayWaveTheme === 'custom' && (
+                  <CustomWaveEditor value={customWave} onChange={handleCustomWaveChange} animate={animate} />
+                )}
 
                 {/* 只有一两个字的选项用分段按钮（和「识别语言」一致）；带图样的波形主题才用卡片 */}
                 <div className="mt-4 flex items-center justify-between gap-4">
@@ -371,7 +412,7 @@ ${t('appearance.streamingSetupNote')}`}
                 </div>
 
                 <div className="mt-4 flex justify-center">
-                  <OverlayPreview theme={overlayWaveTheme} showDuration={overlayShowDuration} barCount={OVERLAY_WIDTH_PRESETS[overlayWidth].barCount} streaming={streamingDisplay} />
+                  <OverlayPreview theme={overlayWaveTheme} customWave={customWave} showDuration={overlayShowDuration} barCount={OVERLAY_WIDTH_PRESETS[overlayWidth].barCount} streaming={streamingDisplay} />
                 </div>
               </div>
             </div>

@@ -1,7 +1,8 @@
 export type RecorderState = 'idle' | 'recording' | 'processing'
 import { t } from '@/i18n'
+import type { CustomWaveColors, OverlayWaveTheme } from '@/lib/overlayWaveColors'
 
-export type OverlayWaveTheme = 'black-white' | 'black-blue' | 'black-rainbow'
+export type { CustomWaveColors, OverlayWaveTheme }
 
 export type OverlayWidthPreset = 'short' | 'medium' | 'long'
 
@@ -18,6 +19,12 @@ export const OVERLAY_WIDTH_PRESETS: Record<OverlayWidthPreset, OverlayWidthConfi
 
 export interface OverlayCommonPayload {
   theme: OverlayWaveTheme
+  /**
+   * 自定义配色。不管当前是不是 custom 主题都带上：原生侧对 payload 是整份替换，
+   * 只在 custom 时才带的话，重放底稿时这个字段可能恰好缺席（见 OverlayService 里
+   * activeFailureCard 的说明）。三个短字符串，成本可以忽略。
+   */
+  customWave: CustomWaveColors
   showDuration: boolean
   baseWidth?: number
   barCount?: number

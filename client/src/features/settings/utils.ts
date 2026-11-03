@@ -1,7 +1,7 @@
 import { matchRealEndpoint, realInputEndpoints, stripUsbIds } from '@/services/audio'
 import type { MicEndpoint } from '@/services/audio'
 
-export type OverlayWaveTheme = 'black-white' | 'black-blue' | 'black-rainbow'
+export type { OverlayWaveTheme } from '@/lib/overlayWaveColors'
 
 // 快捷键映射已收敛到 @/lib/shortcutKeys（单一数据源），这里透传导出以保持既有引用不变。
 export {

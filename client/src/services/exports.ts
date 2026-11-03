@@ -29,6 +29,7 @@ const SETTINGS_EXPORT_KEYS = [
   'hotwordLearning',
   'overlayShowDuration',
   'overlayWaveTheme',
+  'overlayWaveCustom',
   'selectedMic',
   'shortcutHandsFree',
   'shortcutToggleAi',

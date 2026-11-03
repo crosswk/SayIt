@@ -114,6 +114,7 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
     }
+
     html[lang="en"] body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
     }
@@ -404,4 +405,37 @@
    组件上特意写的其它光标（拖动、帮助、禁用……）保留。 */
 :where(html.platform-mac) :is(button, [role="button"]):not(:disabled, .cursor-grab, .cursor-grabbing, .cursor-move, .cursor-help, .cursor-text, .cursor-wait, .cursor-progress, .cursor-not-allowed, .cursor-col-resize, .cursor-row-resize, .cursor-ew-resize, .cursor-ns-resize) {
   cursor: default;
+}
+
+/*
+ * 自定义波形的取色面板（react-colorful，CustomWaveEditor.tsx 的 ColorPopover）。
+ * 组件自带的样式是 200px 方块、大圆角、粗白圈手柄；这里改成随面板宽度、和卡片同一套圆角，
+ * 手柄细一圈并带阴影，深色主题下也看得清。
+ */
+.sayit-colorful .react-colorful {
+  width: 100%;
+  height: 148px;
+}
+
+.sayit-colorful .react-colorful__saturation {
+  border-radius: 6px 6px 0 0;
+  border-bottom: 0;
+}
+
+.sayit-colorful .react-colorful__hue {
+  height: 12px;
+  margin-top: 10px;
+  border-radius: 999px;
+}
+
+.sayit-colorful .react-colorful__last-control {
+  border-radius: 999px;
+}
+
+.sayit-colorful .react-colorful__saturation-pointer,
+.sayit-colorful .react-colorful__hue-pointer {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
