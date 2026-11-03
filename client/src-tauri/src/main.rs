@@ -22,8 +22,6 @@ use window::WindowState;
 use keyboard::KeyboardHookManager;
 use context::ContextDetector;
 use tauri::{Manager, Emitter};
-#[cfg(not(target_os = "macos"))]
-use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
 use std::thread;
 
 /// Environment-level WebView2 flags must be identical for every webview that shares
@@ -743,62 +741,11 @@ fn main() {
             }
             spawn_main_window_watchdog(app.handle().clone(), launched_minimized);
 
-            // 系统托盘图标（macOS：菜单栏图标 + 原生菜单）
-            #[cfg(target_os = "macos")]
-            commands::tray::build_macos_tray(app.handle())?;
+            // 托盘图标 + 原生菜单（macOS：菜单栏图标）
+            commands::tray::build_tray(app.handle())?;
             // macOS 顶部菜单栏里的应用菜单（中文 / 英文跟随界面语言，带 ⌘, 打开设置）
             #[cfg(target_os = "macos")]
             commands::tray::install_macos_app_menu(app.handle())?;
-            #[cfg(not(target_os = "macos"))]
-            {
-                // 自定义菜单窗口在启动时预创建并隐藏；右键时只定位、显示，没有首开延迟。
-                commands::tray::create_tray_menu_window(app.handle())?;
-
-                // 每张托盘图都由 256px 原图直接生成，避免 256 → 32 → 系统实际尺寸的
-                // 二次缩放。按窗口所在屏幕的缩放比例选最接近 Windows 托盘槽位的尺寸；
-                // Logo 的轮廓和完整 SayIt 字样都不变，只对小图做了轻微锐化。
-                let tray_scale = app
-                    .get_webview_window("main")
-                    .and_then(|window| window.scale_factor().ok())
-                    .unwrap_or(1.0);
-                let (tray_icon_bytes, tray_icon_size): (&[u8], u32) = if tray_scale >= 1.75 {
-                    (include_bytes!("../icons/tray-32.png"), 32)
-                } else if tray_scale >= 1.375 {
-                    (include_bytes!("../icons/tray-24.png"), 24)
-                } else if tray_scale >= 1.125 {
-                    (include_bytes!("../icons/tray-20.png"), 20)
-                } else {
-                    (include_bytes!("../icons/tray-16.png"), 16)
-                };
-                log::info!(
-                    "[tray] icon size={}px for scale factor {:.2}",
-                    tray_icon_size,
-                    tray_scale
-                );
-                let icon = tauri::image::Image::from_bytes(tray_icon_bytes)
-                    .expect("failed to load tray icon");
-
-                let _tray = TrayIconBuilder::new()
-                    .icon(icon)
-                    .tooltip("SayIt")
-                    .on_tray_icon_event(|tray, event| {
-                        if let TrayIconEvent::Click { button, button_state: MouseButtonState::Up, position, .. } = event {
-                            match button {
-                                MouseButton::Left => {
-                                    commands::tray::hide_tray_menu(tray.app_handle().clone());
-                                    if let Some(w) = tray.app_handle().get_webview_window("main") {
-                                        window::show_main_window(&w);
-                                    }
-                                }
-                                MouseButton::Right => {
-                                    commands::tray::show_tray_menu(tray.app_handle(), position);
-                                }
-                                _ => {}
-                            }
-                        }
-                    })
-                    .build(app)?;
-            }
 
             // Start WinEvent hook for foreground window monitoring
             let detector: tauri::State<ContextDetector> = app.state();
@@ -907,11 +854,6 @@ fn main() {
             commands::system::open_folder,
             // Tray
             commands::tray::set_tray_ai_enabled,
-            commands::tray::get_tray_ai_enabled,
-            commands::tray::toggle_tray_ai_enabled,
-            commands::tray::show_main_from_tray,
-            commands::tray::hide_tray_menu,
-            commands::tray::quit_from_tray,
             commands::tray::refresh_native_menus,
             // Audio
             commands::audio::save_audio_file,

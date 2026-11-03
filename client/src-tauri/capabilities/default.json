@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Core window/event permissions shared by every SayIt window. Plugin permissions the frontend actually uses live in main.json (main window only).",
-  "windows": ["main", "overlay", "tray-menu", "update-notification"],
+  "windows": ["main", "overlay", "update-notification"],
   "permissions": [
     "core:default",
     "core:window:default",

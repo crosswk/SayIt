@@ -1,7 +1,7 @@
 //! 界面语言：系统显示语言读取 + `ui.language` 偏好解析。
 //!
-//! 为什么这件事必须有 Rust 侧的一份：**托盘菜单在 Rust 建**（main.rs 的
-//! TrayIconBuilder），要它开机就是正确语言，就不能等前端起来再告诉它。
+//! 为什么这件事必须有 Rust 侧的一份：**托盘菜单是原生菜单、在 Rust 建**
+//! （commands/tray.rs 的 build_tray），要它开机就是正确语言，就不能等前端起来再告诉它。
 //!
 //! 为什么不加 `sys-locale` 依赖：`Win32_Globalization` 已经在 Cargo.toml 的
 //! windows feature 列表里，需要的 API 直接可用。这是 Windows 独占应用，

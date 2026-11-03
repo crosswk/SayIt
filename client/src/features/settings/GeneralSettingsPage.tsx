@@ -143,8 +143,8 @@ export default function GeneralSettingsPage() {
       setLanguagePreference(previous)
       await switchLanguage(previous).catch(() => { })
     }
-    // mac 的菜单栏图标菜单和顶部应用菜单是原生的，不会跟着网页换语言，要让 Rust 重建
-    if (IS_MAC) void bridge.refreshNativeMenus().catch(() => { })
+    // 托盘菜单（以及 mac 的顶部应用菜单）是原生的，不会跟着网页换语言，要让 Rust 改文字
+    void bridge.refreshNativeMenus().catch(() => { })
   }
   const toggleAutoLaunch = async () => { const next = !autoLaunch; setAutoLaunch(next); await bridge.setAutoLaunch(next) }
   const handleMicChange = async (deviceId: string) => { setSelectedMic(deviceId); await setSetting('selectedMic', deviceId); await refreshRecorderSettings() }

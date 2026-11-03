@@ -57,7 +57,6 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         overlay: path.resolve(__dirname, 'overlay.html'),
-        trayMenu: path.resolve(__dirname, 'tray-menu.html'),
         updateNotification: path.resolve(__dirname, 'update-notification.html'),
       },
     },

@@ -173,9 +173,6 @@ impl WindowState {
     }
 
     /// webview 里 1 个 CSS px 相当于几个显示器逻辑 px。
-    ///
-    /// 对外公开是给托盘菜单窗口用的：它是同一个 WebView2 环境、同一个 origin，OS 文本
-    /// 缩放和页面缩放都是共享的，所以没必要让它再单独测一遍（它也没有 render ack 通道）。
     pub fn css_zoom(&self) -> f64 {
         *self.overlay_css_zoom.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
