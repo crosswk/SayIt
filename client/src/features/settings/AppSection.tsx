@@ -1,6 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { useT } from '@/i18n/useT'
+import { IS_MAC } from '@/lib/platform'
 
 /**
  * 这里曾经还有一个「自动检测更新」开关。撤掉了：更新现在是必走的 ——
@@ -26,8 +27,9 @@ export default function AppSection({
         <h2 className="mb-4 text-lg font-semibold">{t('settings.app.title')}</h2>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium">{t('settings.app.autoLaunch')}</p>
-            <p className="text-xs text-muted-foreground">{t('settings.app.autoLaunchDesc')}</p>
+            {/* mac 上叫「登录时打开」，没有「开机」这个说法 */}
+            <p className="text-sm font-medium">{t(IS_MAC ? 'settings.app.autoLaunchMac' : 'settings.app.autoLaunch')}</p>
+            <p className="text-xs text-muted-foreground">{t(IS_MAC ? 'settings.app.autoLaunchDescMac' : 'settings.app.autoLaunchDesc')}</p>
           </div>
           <Switch checked={autoLaunch} onChange={onToggleAutoLaunch} noAnimation={!animate} hidden={!ready} />
         </div>

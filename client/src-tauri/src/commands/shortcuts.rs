@@ -48,10 +48,24 @@ pub fn register_all_global_shortcuts(app: &AppHandle, storage: &Storage) {
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
 
+    // macOS 15 起，系统快捷键不触发修饰键只有 ⌥ / ⇧ 的组合，这一类交给 event tap
+    // （keyboard/macos.rs 的 TAP_COMBOS），其余照旧注册成系统快捷键。Windows 全部走系统快捷键，
+    // 下面每处的 `via_tap` 在 Windows 上恒为 false。
+    #[cfg(target_os = "macos")]
+    let mut tap_combos: Vec<crate::keyboard::TapCombo> = Vec::new();
+
     // 免提组合键
     let hf_val = storage.get("shortcutHandsFree", None);
     let hf_key = hf_val.as_str().unwrap_or(crate::defaults::SHORTCUT_HANDS_FREE).to_string();
-    if !hf_key.is_empty() && hf_key.contains('+') {
+    let hf_is_combo = !hf_key.is_empty() && hf_key.contains('+');
+    #[cfg(target_os = "macos")]
+    let via_tap = hf_is_combo
+        && route_to_event_tap(&mut tap_combos, &hf_key, crate::keyboard::TapComboAction::HandsFree);
+    #[cfg(not(target_os = "macos"))]
+    let via_tap = false;
+    if via_tap {
+        log::info!("Registered hands-free shortcut in the event tap: {}", hf_key);
+    } else if hf_is_combo {
         if let Err(e) = gs.on_shortcut(hf_key.as_str(), move |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
                 let _ = app.emit(
@@ -69,7 +83,15 @@ pub fn register_all_global_shortcuts(app: &AppHandle, storage: &Storage) {
     // AI 整理开关快捷键。留空即不注册，避免默认占用用户已有组合键。
     let ai_toggle = storage.get("shortcutToggleAi", None);
     let ai_toggle_key = ai_toggle.as_str().unwrap_or(crate::defaults::SHORTCUT_TOGGLE_AI).to_string();
-    if !ai_toggle_key.is_empty() && ai_toggle_key.contains('+') {
+    let ai_toggle_is_combo = !ai_toggle_key.is_empty() && ai_toggle_key.contains('+');
+    #[cfg(target_os = "macos")]
+    let via_tap = ai_toggle_is_combo
+        && route_to_event_tap(&mut tap_combos, &ai_toggle_key, crate::keyboard::TapComboAction::AiToggle);
+    #[cfg(not(target_os = "macos"))]
+    let via_tap = false;
+    if via_tap {
+        log::info!("Registered AI cleanup shortcut in the event tap: {}", ai_toggle_key);
+    } else if ai_toggle_is_combo {
         let ai_toggle_for_log = ai_toggle_key.clone();
         if let Err(e) = gs.on_shortcut(ai_toggle_key.as_str(), move |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
@@ -90,6 +112,18 @@ pub fn register_all_global_shortcuts(app: &AppHandle, storage: &Storage) {
                 Some(s) if !s.is_empty() && s.contains('+') => s.to_string(),
                 _ => continue,
             };
+            #[cfg(target_os = "macos")]
+            let via_tap = route_to_event_tap(
+                &mut tap_combos,
+                &accel,
+                crate::keyboard::TapComboAction::Preset(preset_id.clone()),
+            );
+            #[cfg(not(target_os = "macos"))]
+            let via_tap = false;
+            if via_tap {
+                log::info!("Registered preset shortcut in the event tap: {} for '{}'", accel, preset_id);
+                continue;
+            }
             let pid = preset_id.clone();
             let accel_for_log = accel.clone();
             if let Err(e) = gs.on_shortcut(accel.as_str(), move |app, _shortcut, event| {
@@ -107,6 +141,25 @@ pub fn register_all_global_shortcuts(app: &AppHandle, storage: &Storage) {
                 );
             }
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    crate::keyboard::set_tap_combos(tap_combos);
+}
+
+/// macOS：系统快捷键接不住的组合键（只带 ⌥ / ⇧）放进 `list`，返回 true；其余返回 false，照旧注册成系统快捷键。
+#[cfg(target_os = "macos")]
+fn route_to_event_tap(
+    list: &mut Vec<crate::keyboard::TapCombo>,
+    accelerator: &str,
+    action: crate::keyboard::TapComboAction,
+) -> bool {
+    match crate::keyboard::tap_combo_for_accelerator(accelerator, action) {
+        Some(combo) => {
+            list.push(combo);
+            true
+        }
+        None => false,
     }
 }
 
@@ -184,6 +237,10 @@ pub fn end_shortcut_capture(app: AppHandle, storage: State<Storage>) {
 pub fn set_ptt_lab_config(data: Value, app: AppHandle) -> Result<(), String> {
     let enabled = data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
     log::info!("[ptt-lab] set_ptt_lab_config called, enabled={}, data={}", enabled, data);
+
+    // PTT Lab 是 Windows 上排查低级钩子用的调试页，mac 上不提供（前端也隐藏了入口）。
+    #[cfg(not(windows))]
+    let _ = &app;
 
     #[cfg(windows)]
     {

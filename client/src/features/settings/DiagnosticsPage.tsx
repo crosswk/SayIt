@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { IS_MAC } from '@/lib/platform'
 import { Card, CardContent } from '@/components/ui/card'
 import { getSetting } from '@/services/store'
 import { getRuntimeEvents, type RuntimeEvent } from '@/services/debugLog'
@@ -92,8 +93,8 @@ export default function DiagnosticsPage() {
         <ol className="list-decimal space-y-1.5 pl-5">
           <li><RichText text={t('diagnostics.faq.insert1')} /></li>
           <li><RichText text={t('diagnostics.faq.insert2')} /></li>
-          <li><RichText text={t('diagnostics.faq.insert3')} /></li>
-          <li><RichText text={t('diagnostics.faq.insert4')} /></li>
+          <li><RichText text={t(IS_MAC ? 'diagnostics.faq.insert3Mac' : 'diagnostics.faq.insert3')} /></li>
+          <li><RichText text={t(IS_MAC ? 'diagnostics.faq.insert4Mac' : 'diagnostics.faq.insert4')} /></li>
           <li><RichText text={t('diagnostics.faq.insert5')} /></li>
         </ol>
         {/* 收尾这句刻意放在列表外：前五条是用户能自己处理的，这句是"处理不了时
@@ -376,7 +377,8 @@ export default function DiagnosticsPage() {
               </div>
             </div>
 
-            <div className="custom-scrollbar max-h-64 min-h-[3rem] space-y-1 overflow-y-auto">
+            {/* mac-selectable：mac 上界面文字默认不可选，运行日志要能选中拷贝（index.css） */}
+            <div className="mac-selectable custom-scrollbar max-h-64 min-h-[3rem] space-y-1 overflow-y-auto">
               {filteredEvents().length === 0 ? (
                 <div className="flex h-12 items-center justify-center text-sm text-muted-foreground/50">
                   {t(logFilter === 'errors' ? 'diagnostics.noErrors' : logFilter === 'warnings' ? 'diagnostics.noWarnings' : 'diagnostics.noLogs')}

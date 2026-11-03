@@ -9,6 +9,11 @@ import { hasPendingUpdate } from '@/features/update/autoUpdate'
 import { useUpdateState } from '@/features/update/useUpdateState'
 import type { TranslationKey } from '@/i18n'
 import { useT } from '@/i18n/useT'
+import { IS_MAC } from '@/lib/platform'
+// mac 侧栏顶部的品牌图标：从 src-tauri/icons/icon.png（256px）按精确尺寸高质量缩出来的 1 倍 / 2 倍图。
+// 让浏览器把大图现场缩到 28px 会发虚，图标里那行 SayIt 就看不清了。
+import macIcon from '@/assets/app-icon-28.png'
+import macIcon2x from '@/assets/app-icon-28@2x.png'
 
 // 导航项存 key 而不是文案：切语言时这些常量不会重新求值（模块级只算一次），
 // 存成中文串就会永远停在启动时那个语言。
@@ -195,6 +200,15 @@ export default function Sidebar() {
   const t = useT()
   return (
     <nav className="flex w-48 flex-col border-r border-sidebar-border bg-sidebar py-4">
+      {/* mac：标题栏左边归系统红绿灯，图标和名字放在侧栏最上面、「首页」上方（Windows 的在标题栏里）。
+          图标中心对齐下面导航项的图标列（距侧栏左边 32px）。 */}
+      {IS_MAC && (
+        <div className="mb-3 flex items-center gap-2.5 pl-[18px] pr-3">
+          <img src={macIcon} srcSet={`${macIcon} 1x, ${macIcon2x} 2x`} width={28} height={28}
+            alt="" aria-hidden className="h-7 w-7 shrink-0" draggable={false} />
+          <span className="text-sm text-sidebar-text-active" style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, letterSpacing: '0.01em' }}>SayIt</span>
+        </div>
+      )}
       <div className="flex-1 space-y-1 px-3">
         {dailyNavItems.map(({ to, icon, labelKey }) => (
           <NavItem key={to} to={to} icon={icon} label={t(labelKey)} />

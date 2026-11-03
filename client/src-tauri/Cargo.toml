@@ -8,7 +8,9 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png", "image-ico"] }
+# macos-private-api：macOS 上透明窗口（悬浮窗、更新通知）必须开；在 Windows 上不起作用。
+# 与 tauri.conf.json 的 app.macOSPrivateApi 必须同时开关（tauri-build 会对账）。
+tauri = { version = "2", features = ["tray-icon", "image-png", "image-ico", "macos-private-api"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
@@ -40,17 +42,42 @@ tokio = { version = "1", features = ["rt", "macros", "time", "fs"] }
 # 内存打满。ReaderStream 把文件转成 reqwest 能吃的 Stream，配 reqwest 的 stream feature。
 tokio-util = { version = "0.7", features = ["io"] }
 silero-vad-crs = { version = "=0.4.0", features = ["auto"] }
+
 # GGUF / ggml 本地 ASR 引擎（transcribe.cpp 的官方 Rust 绑定，MIT）。
+# 计算后端按平台在下面的 target 段里选：Cargo 会合并同一依赖在所有生效段里的 features，
+# 写在通用 [dependencies] 里的 vulkan 会连 macOS 一起打开（mac 上没有 Vulkan SDK）。
+#
+# Windows：
 # dynamic-backends：各计算后端编成可 dlopen 的模块（隐含 shared，libtranscribe
 # 本身也是 DLL），运行时按 CPU 指令集挑最优的 ggml-cpu-* 模块。
 # vulkan：一个 API 覆盖 NVIDIA / AMD / Intel / 核显，没有就自动回落 CPU。
 #   构建需要 Vulkan SDK（编 SPIR-V shader）：装完要新开终端，VULKAN_SDK 不会进已运行的 shell。
 # 不带 CUDA：官方 CUDA 包 226 MB，Vulkan 已覆盖同样的硬件。
 # 注意：首次构建会用 CMake 从源码编整棵 C++ 树（约 20 分钟），之后走缓存。
-transcribe-cpp = { version = "0.1.3", default-features = false, features = [
-  "dynamic-backends",
-  "vulkan",
-] }
+[target.'cfg(windows)'.dependencies.transcribe-cpp]
+version = "0.1.3"
+default-features = false
+features = ["dynamic-backends", "vulkan"]
+
+# macOS：metal + 静态链接。不开 dynamic-backends，就不会产出要随包分发、逐个签名的
+# dylib，build.rs 的暂存步骤也自然跳过（拿不到 DEP_TRANSCRIBE_CPP_RUNTIME_DIR）。
+[target.'cfg(target_os = "macos")'.dependencies.transcribe-cpp]
+version = "0.1.3"
+default-features = false
+features = ["metal"]
+
+# 其它平台（Linux 等）只编 CPU 后端，保证能编过；目前不发布。
+[target.'cfg(not(any(windows, target_os = "macos")))'.dependencies.transcribe-cpp]
+version = "0.1.3"
+default-features = false
+
+# macOS 系统集成：AppKit / Foundation 走 objc2（与 tauri/tao 用的是同一套版本，
+# 类型可以互通）；CoreGraphics / CoreFoundation / Accessibility / CoreAudio / Carbon
+# 这些稳定的 C 接口直接在 src/platform/macos/ffi.rs 里声明，不再引入第二套绑定。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

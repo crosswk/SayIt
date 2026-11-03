@@ -15,9 +15,11 @@ pub const OFFICIAL_SERVER_URL: &str = match option_env!("SAYIT_DEFAULT_SERVER_UR
 /// 服务器设置在数据库里的 key（前端 runtimeConfig.ts 的 BACKEND_BASE_URL_STORE_KEY）。
 pub const BACKEND_BASE_URL_KEY: &str = "backendBaseUrl";
 
+#[cfg_attr(not(windows), allow(dead_code))]
 const OFFICIAL_DOMAIN: &str = "sayitapp.site";
 
 /// 官方域名及其子域。这些主机**永远**严格校验证书，哪怕用户把服务器地址填成了它们。
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn is_official_host(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     host == OFFICIAL_DOMAIN || host.ends_with(&format!(".{OFFICIAL_DOMAIN}"))
@@ -33,6 +35,7 @@ fn parse(value: &str) -> Option<Url> {
 
 /// (主机, 端口)。wss 与 https 同端口默认值，ws 与 http 同端口默认值，
 /// 所以证书放行时 `https://h` 和 `wss://h` 视为同一个目标。
+#[cfg_attr(not(windows), allow(dead_code))]
 fn host_port(url: &Url) -> Option<(String, u16)> {
     let host = url.host_str()?.to_ascii_lowercase();
     let port = url.port_or_known_default()?;
@@ -44,6 +47,7 @@ fn host_port(url: &Url) -> Option<(String, u16)> {
 /// 只有一种情况放行：请求的主机和端口正好是用户保存的服务器地址，那个地址是 https，
 /// 且不是官方域名。这是给"自建服务器 + 自签名证书"留的口子（仓库的 Docker 镜像默认就是自签名）。
 /// 其余一律拒绝 —— 这条原来是 `--ignore-certificate-errors`，对所有主机都不校验。
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn cert_error_allowed(request_uri: &str, configured_backend: &str) -> bool {
     let (Some(request), Some(configured)) = (parse(request_uri), parse(configured_backend)) else {
         return false;

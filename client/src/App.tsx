@@ -62,8 +62,13 @@ export default function App() {
     const unlistenOpenAbout = listen('open-about', () => {
       navigate('/about')
     })
+    // macOS 应用菜单的「设置…」（⌘,）；Windows 不会发这个事件
+    const unlistenOpenSettings = listen('open-settings', () => {
+      navigate('/settings')
+    })
     return () => {
       void unlistenOpenAbout.then((fn) => fn())
+      void unlistenOpenSettings.then((fn) => fn())
     }
   }, [navigate])
 

@@ -69,6 +69,8 @@ export interface ClientRuntimeInfo {
   hostname: string
   clientVersion: string
   platform: string
+  /** CPU 架构（x86_64 / aarch64），更新通道按它选安装包 */
+  arch?: string
   osVersion: string
   localIp: string
   systemLocale: string

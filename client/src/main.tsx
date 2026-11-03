@@ -8,6 +8,12 @@ import { addRuntimeEvent } from './services/debugLog'
 import { initRuntimeConfig } from './services/runtimeConfig'
 import { initProviderFromStore } from './services/transcription'
 import { initLanguage, initLocaleDefaults } from './stores/language'
+import { IS_MAC } from './lib/platform'
+import { installMacWebviewBehavior } from './lib/macWebview'
+
+// mac：系统滚动条、界面文字不可选、右键菜单只留在输入框里（见 lib/macWebview.ts）。
+// 放在最前面，首帧就带上 platform-mac。
+if (IS_MAC) installMacWebviewBehavior()
 
 window.addEventListener('error', (event) => {
   addRuntimeEvent('error', 'window', event.message || 'Uncaught error', {

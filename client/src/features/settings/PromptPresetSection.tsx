@@ -13,6 +13,7 @@ import { ComboShortcutInput, type ShortcutValidate } from './ShortcutInputs'
 import { displayAccelerator } from './utils'
 import { useT } from '@/i18n/useT'
 import { promptPresetDisplayName } from '@/i18n/displayNames'
+import { IS_MAC } from '@/lib/platform'
 import type { TranslationKey } from '@/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
 
@@ -196,7 +197,7 @@ export default function PromptPresetSection({
                 onChange={onEditingShortcutChange}
                 validate={validateShortcut}
                 label={t('promptPreset.shortcut')}
-                description={t('promptPreset.shortcutHint')}
+                description={t(IS_MAC ? 'promptPreset.shortcutHintMac' : 'promptPreset.shortcutHint')}
                 comboOnly
               />
             </div>

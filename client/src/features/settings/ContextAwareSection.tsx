@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react'
 import { Info, Pencil, RotateCcw } from 'lucide-react'
+import { IS_MAC } from '@/lib/platform'
 import { Card, CardContent } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { Switch } from '@/components/ui/switch'
@@ -99,7 +100,7 @@ export default function ContextAwareSection() {
                   variant="light"
                   content={(
                     <div className="w-[32rem] max-w-[calc(100vw-3rem)] space-y-2">
-                      <p>{t('settings.contextAware.infoFunction')}</p>
+                      <p>{t(IS_MAC ? 'settings.contextAware.infoFunctionMac' : 'settings.contextAware.infoFunction')}</p>
                       <p>{t('settings.contextAware.infoUsage')}</p>
                       <p>{t('settings.contextAware.infoPrinciple')}</p>
                     </div>

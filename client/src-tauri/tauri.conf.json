@@ -10,6 +10,7 @@
   },
   "app": {
     "withGlobalTauri": false,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
@@ -37,8 +38,7 @@
       "msi"
     ],
     "resources": {
-      "resources/*": "resources/",
-      "transcribe-libs/*": "./"
+      "resources/*": "resources/"
     },
     "icon": [
       "icons/icon.ico",

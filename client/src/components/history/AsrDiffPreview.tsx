@@ -29,8 +29,9 @@ export function AsrDiffPreview({
         <span className="font-medium">{t('asrCorrection.diffLabel')}</span>
         <span>{changed ? t('asrCorrection.diffCount', { count: changeCount }) : t('asrCorrection.diffNone')}</span>
       </div>
+      {/* mac-selectable：mac 上界面文字默认不可选，对比预览要能选中拷贝（index.css） */}
       <div
-        className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 px-2.5 py-2 text-sm leading-relaxed"
+        className="mac-selectable max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 px-2.5 py-2 text-sm leading-relaxed"
         aria-live="polite"
       >
         {segments.length === 0 ? (

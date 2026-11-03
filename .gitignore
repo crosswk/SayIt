@@ -25,6 +25,8 @@ server/mytestwav.txt
 # ── Client dev artifacts ──
 client/scripts/*
 !client/scripts/check-i18n.mjs
+# macOS 自签名证书与发布打包脚本，发版要用，进仓库
+!client/scripts/macos/
 client/dist/
 # build.rs 从 transcribe-cpp 的构建产物拷进来的 DLL，纯生成物
 client/src-tauri/transcribe-libs/
@@ -65,3 +67,6 @@ Thumbs.db
 # ── Logs & runtime ──
 *.log
 runtime/
+
+# macOS 发布产物（scripts/macos/build-release.sh）
+client/dist-macos/

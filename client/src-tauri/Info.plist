@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- 打包时由 Tauri 合并进生成的 Info.plist（仅 macOS）。 -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>SayIt 需要使用麦克风来录下你说的话并转成文字。SayIt needs the microphone to turn your speech into text.</string>
+  <!-- 常驻菜单栏的热键应用：不让系统在空闲时自动终止或 App Nap 降频，否则按下热键后要等进程被唤醒。 -->
+  <key>NSSupportsAutomaticTermination</key>
+  <false/>
+  <key>NSSupportsSuddenTermination</key>
+  <false/>
+  <key>NSAppSleepDisabled</key>
+  <true/>
+</dict>
+</plist>

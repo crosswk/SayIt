@@ -12,6 +12,7 @@ import type { AppPromptRule } from '@/services/personalization/types'
 import { useT } from '@/i18n/useT'
 import { appPromptRuleDisplayName, promptPresetDisplayName } from '@/i18n/displayNames'
 import { InfoTip } from '@/components/ui/info-tip'
+import { IS_MAC } from '@/lib/platform'
 
 /**
  * 「检测当前应用」的倒计时秒数。
@@ -29,7 +30,7 @@ const DETECT_COUNTDOWN_SEC = 5
  */
 function formatMatcher(rule: AppPromptRule, t: ReturnType<typeof useT>) {
   if (rule.matcher.processNames.length > 0) {
-    return t('appPrompt.matcherProcess', { value: rule.matcher.processNames.join(', ') })
+    return t(IS_MAC ? 'appPrompt.matcherProcessMac' : 'appPrompt.matcherProcess', { value: rule.matcher.processNames.join(', ') })
   }
   const parts: string[] = []
   if (rule.matcher.windowTitleIncludes?.length) {
@@ -177,12 +178,13 @@ export default function AppPromptRulesSection({
     setCountdown(0)
     try {
       const ctx = await bridge.getActiveAppContext()
-      const raw = String((ctx?.processName as string) || '').trim()
+      // mac 上可执行文件名不可靠（VS Code 叫 Electron），优先用 Bundle ID
+      const raw = String(((IS_MAC ? ctx?.bundleId || ctx?.processName : ctx?.processName) as string) || '').trim()
       if (!raw) {
         setDetectHint({ kind: 'missing' })
         return
       }
-      if (raw.toLowerCase() === 'sayit.exe') {
+      if (raw.toLowerCase() === 'sayit.exe' || raw.toLowerCase() === 'com.sayit.app') {
         setDetectHint({ kind: 'sayit' })
         return
       }
@@ -234,7 +236,7 @@ export default function AppPromptRulesSection({
               <InfoTip
                 content={(
                   <div className="space-y-2">
-                    <p>{t('appPrompt.desc')}</p>
+                    <p>{t(IS_MAC ? 'appPrompt.descMac' : 'appPrompt.desc')}</p>
                     <p>{t('appPrompt.orderHint')}</p>
                   </div>
                 )}
@@ -273,12 +275,12 @@ export default function AppPromptRulesSection({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">{t('appPrompt.processName')}</label>
+                  <label className="text-xs font-medium text-foreground">{t(IS_MAC ? 'appPrompt.processNameMac' : 'appPrompt.processName')}</label>
                   <div className="flex gap-2">
                     <input
                       value={newRule.processName}
                       onChange={(event) => setNewRule({ ...newRule, processName: event.target.value })}
-                      placeholder={t('appPrompt.processPlaceholder')}
+                      placeholder={t(IS_MAC ? 'appPrompt.processPlaceholderMac' : 'appPrompt.processPlaceholder')}
                       className="w-0 flex-1 rounded-md border border-input-border bg-input-bg px-3 py-1.5 text-sm"
                     />
                     <Button
@@ -305,8 +307,10 @@ export default function AppPromptRulesSection({
                     : detectHint
                       ? t(detectHint.kind === 'sayit'
                         ? 'appPrompt.detectSayIt'
-                        : detectHint.kind === 'missing' ? 'appPrompt.detectMissing' : 'appPrompt.detectFailed')
-                      : t('appPrompt.detectHint', { seconds: DETECT_COUNTDOWN_SEC })}
+                        : detectHint.kind === 'missing'
+                          ? (IS_MAC ? 'appPrompt.detectMissingMac' : 'appPrompt.detectMissing')
+                          : (IS_MAC ? 'appPrompt.detectFailedMac' : 'appPrompt.detectFailed'))
+                      : t(IS_MAC ? 'appPrompt.detectHintMac' : 'appPrompt.detectHint', { seconds: DETECT_COUNTDOWN_SEC })}
               </p>
 
               <div className="space-y-1.5">
@@ -399,7 +403,7 @@ export default function AppPromptRulesSection({
                     <div className="space-y-3">
                       {!rule.builtin && (
                         <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-foreground">{t('appPrompt.processName')}</label>
+                          <label className="text-xs font-medium text-foreground">{t(IS_MAC ? 'appPrompt.processNameMac' : 'appPrompt.processName')}</label>
                           <input
                             value={(draft.matcher.processNames || []).join(', ')}
                             onChange={(event) => updateDraft(rule.id, {
@@ -408,7 +412,7 @@ export default function AppPromptRulesSection({
                                 processNames: event.target.value.split(/[,\uFF0C\s]+/).map((s) => s.trim()).filter(Boolean),
                               },
                             })}
-                            placeholder={t('appPrompt.processPlaceholder')}
+                            placeholder={t(IS_MAC ? 'appPrompt.processPlaceholderMac' : 'appPrompt.processPlaceholder')}
                             className="w-full rounded-md border border-input-border bg-input-bg px-3 py-1.5 text-sm"
                           />
                         </div>

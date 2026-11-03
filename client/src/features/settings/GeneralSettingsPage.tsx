@@ -23,6 +23,8 @@ import { pttShortcutConflictsWithAccelerator } from '@/lib/shortcutKeys'
 import { t, type LanguagePreference, type TranslationKey } from '@/i18n'
 import { useT } from '@/i18n/useT'
 import { getLanguagePreference, switchLanguage } from '@/stores/language'
+import { IS_MAC } from '@/lib/platform'
+import { MacPermissionsPanel } from '@/components/MacPermissionsPanel'
 
 /** 语言名一律用该语言自己的写法（English / 简体中文），不做翻译 —— 看不懂当前
  *  界面语言的人，正是靠认出自己的语言名才能切回去的。 */
@@ -141,6 +143,8 @@ export default function GeneralSettingsPage() {
       setLanguagePreference(previous)
       await switchLanguage(previous).catch(() => { })
     }
+    // mac 的菜单栏图标菜单和顶部应用菜单是原生的，不会跟着网页换语言，要让 Rust 重建
+    if (IS_MAC) void bridge.refreshNativeMenus().catch(() => { })
   }
   const toggleAutoLaunch = async () => { const next = !autoLaunch; setAutoLaunch(next); await bridge.setAutoLaunch(next) }
   const handleMicChange = async (deviceId: string) => { setSelectedMic(deviceId); await setSetting('selectedMic', deviceId); await refreshRecorderSettings() }
@@ -259,6 +263,16 @@ export default function GeneralSettingsPage() {
           </CardContent>
         </Card>
 
+        {/* macOS：辅助功能 / 麦克风授权。没有它们热键和插字都用不了，所以紧跟在语言后面 */}
+        {IS_MAC && (
+          <Card>
+            <CardContent className="space-y-4 p-6">
+              <h2 className="text-lg font-semibold">{t('settings.macPermissions.title')}</h2>
+              <MacPermissionsPanel compact />
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardContent className="p-6">
             <h2 className="text-lg font-semibold">{t('settings.shortcuts.title')}</h2>
@@ -276,14 +290,14 @@ export default function GeneralSettingsPage() {
                 value={handsFreeKey}
                 onChange={handleHandsFreeChange}
                 validate={validateHandsFree}
-                label={<ShortcutLabel label={t('settings.shortcuts.handsFree')} help={t('settings.shortcuts.handsFreeHelp')} />}
+                label={<ShortcutLabel label={t('settings.shortcuts.handsFree')} help={t(IS_MAC ? 'settings.shortcuts.handsFreeHelpMac' : 'settings.shortcuts.handsFreeHelp')} />}
                 description={t('settings.shortcuts.handsFreeDesc')}
               />
               <PTTShortcutInput
                 value={pttKey}
                 onChange={handlePTTChange}
                 validate={validatePTT}
-                label={<ShortcutLabel label={t('settings.shortcuts.ptt')} help={t('settings.shortcuts.pttHelp')} />}
+                label={<ShortcutLabel label={t('settings.shortcuts.ptt')} help={t(IS_MAC ? 'settings.shortcuts.pttHelpMac' : 'settings.shortcuts.pttHelp')} />}
                 description={t('settings.shortcuts.pttDesc')}
               />
             </div>

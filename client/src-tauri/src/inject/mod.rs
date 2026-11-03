@@ -169,6 +169,11 @@ use windows::Win32::Foundation::HANDLE;
 
 use crate::context;
 
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::{copy_to_clipboard, inject_text, inject_text_to_hwnd};
+
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct InjectResult {
     pub ok: bool,
@@ -231,11 +236,11 @@ pub fn inject_text(text: &str, restore_clipboard: bool) -> InjectResult {
     inject_text_to_hwnd(text, target_hwnd, focus_hwnd, restore_clipboard)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn inject_text_to_hwnd(_text: &str, _target: isize, _focus: isize, _restore_clipboard: bool) -> InjectResult {
     InjectResult { ok: false, strategy: None, reason: Some("not_windows".to_string()), detail: None, uncertain: false }
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn inject_text(_text: &str, _restore_clipboard: bool) -> InjectResult {
     InjectResult { ok: false, strategy: None, reason: Some("not_windows".to_string()), detail: None, uncertain: false }
 }
@@ -267,6 +272,9 @@ pub enum EditableGate {
     ProcessAllowlist,
     /// 四层判据全部落空
     NoSignal,
+    /// macOS：辅助功能没给出否定信号（拿不到焦点元素，或焦点不是按钮/菜单这类控件），乐观放行
+    #[cfg(target_os = "macos")]
+    AxOptimistic,
 }
 
 impl EditableGate {
@@ -289,6 +297,8 @@ impl EditableGate {
             Self::ChromiumOptimistic => "chromium_optimistic",
             Self::ProcessAllowlist => "process_allowlist",
             Self::NoSignal => "no_signal",
+            #[cfg(target_os = "macos")]
+            Self::AxOptimistic => "ax_optimistic",
         }
     }
 }
@@ -300,12 +310,26 @@ impl EditableGate {
 /// 不删掉它是因为测试确实要断言"最终结论是可编辑"这一面 —— 见下面注释说的漂移风险。
 #[cfg(test)]
 pub fn is_likely_editable_pub(ctx: &context::AppContext) -> bool {
-    editability_gate(ctx).is_editable()
+    windows_editability_gate(ctx).is_editable()
 }
 
 /// 判据只有这一份实现。别再复制一份出来只为了拿一个 bool 结论 —— 两份判据迟早漂移，
 /// 而漂移的症状是「改了一处，另一条路径照旧」。需要 bool 就 `.is_editable()`。
 pub fn editability_gate(ctx: &context::AppContext) -> EditableGate {
+    #[cfg(target_os = "macos")]
+    {
+        macos::editability_gate(ctx)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        windows_editability_gate(ctx)
+    }
+}
+
+/// Windows 的四层判据（caret / 原生控件类名 / UIA / 进程名白名单）。
+/// 纯逻辑、不调系统 API，所以在 mac 上也编译，单测照样跑。
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn windows_editability_gate(ctx: &context::AppContext) -> EditableGate {
     let fc = ctx.focus_class.to_lowercase();
     let wc = ctx.window_class.to_lowercase();
     let proc = ctx.process_name.to_lowercase();
@@ -1163,16 +1187,19 @@ unsafe fn token_elevated(process: *mut std::ffi::c_void) -> Option<bool> {
 }
 
 #[cfg(any(windows, test))]
+#[cfg_attr(not(windows), allow(dead_code))]
 fn fmt_opt(value: Option<usize>) -> String {
     value.map_or_else(|| "?".to_string(), |v| v.to_string())
 }
 
 #[cfg(any(windows, test))]
+#[cfg_attr(not(windows), allow(dead_code))]
 fn fmt_sel(sel: Option<(usize, usize)>) -> String {
     sel.map_or_else(|| "?".to_string(), |(start, end)| format!("{}-{}", start, end))
 }
 
 #[cfg(any(windows, test))]
+#[cfg_attr(not(windows), allow(dead_code))]
 fn fmt_bool_opt(value: Option<bool>) -> &'static str {
     match value {
         Some(true) => "true",
@@ -1644,8 +1671,8 @@ mod clipboard_format_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        describe_editability, editability_gate, is_likely_editable_pub, normalize_for_edit,
-        selection_len_matches, EditableGate,
+        describe_editability, is_likely_editable_pub, normalize_for_edit, selection_len_matches,
+        windows_editability_gate as editability_gate, EditableGate,
     };
     use crate::context::AppContext;
 

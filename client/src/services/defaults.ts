@@ -7,7 +7,11 @@
  * Prompt 相关配置（内容较长，单独存放）：
  *   - 内置润色模式 → src/services/store.ts 的 BUILTIN_PRESETS
  *   - 应用 Prompt 规则 → src/services/personalization/defaults.ts 的 BUILTIN_APP_RULES
+ *
+ * macOS 上个别默认值不同，见文件末尾的 MAC_DEFAULT_OVERRIDES。
  */
+
+import { IS_MAC } from '@/lib/platform'
 
 export const DEFAULTS: Record<string, unknown> = {
 
@@ -193,10 +197,22 @@ export const DEFAULTS: Record<string, unknown> = {
 }
 
 /**
+ * macOS 上覆盖的默认值。MacBook 内置键盘没有右 Ctrl，所以按住说话改成右 ⌥、免提改成右 ⌘。
+ * ⚠ 同样要和 Rust 对账（defaults.rs 的宏），对账测试逐行解析，保持单行字面量。
+ */
+export const MAC_DEFAULT_OVERRIDES: Record<string, unknown> = {
+  shortcutPTT: 'AltRight',
+  shortcutHandsFree: 'MetaRight',
+}
+
+/**
  * 获取指定 key 的默认值。
  * 如果 key 不在 DEFAULTS 中，返回提供的 fallback。
  */
 export function getDefault<T>(key: string, fallback?: T): T {
+  if (IS_MAC && key in MAC_DEFAULT_OVERRIDES) {
+    return MAC_DEFAULT_OVERRIDES[key] as T
+  }
   if (key in DEFAULTS) {
     return DEFAULTS[key] as T
   }

@@ -99,7 +99,11 @@ fn get_os_version() -> String {
             .map(|s: String| s.trim().to_string())
             .unwrap_or_else(|| "Windows".to_string())
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        crate::platform::macos::sysinfo::os_version()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         whoami::distro()
     }
@@ -131,7 +135,12 @@ fn get_system_locale() -> String {
             "unknown".to_string()
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    // macOS：区域格式（CFLocale），不能读 LANG（Finder 启动的 App 没有这个变量）。
+    #[cfg(target_os = "macos")]
+    {
+        crate::platform::macos::sysinfo::locale_identifier().unwrap_or_else(|| "unknown".to_string())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         std::env::var("LANG").unwrap_or_else(|_| "unknown".to_string())
     }
@@ -153,7 +162,11 @@ fn get_total_memory_mb() -> u64 {
             0
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        crate::platform::macos::sysinfo::total_memory_mb()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         0
     }
@@ -171,6 +184,8 @@ pub struct ClientRuntimeInfo {
     #[serde(rename = "clientVersion")]
     pub client_version: String,
     pub platform: String,
+    /// CPU 架构（std::env::consts::ARCH：x86_64 / aarch64），更新通道按它选安装包。
+    pub arch: String,
     #[serde(rename = "osVersion")]
     pub os_version: String,
     #[serde(rename = "localIp")]
@@ -213,6 +228,7 @@ pub fn get_client_runtime_info(storage: State<Storage>) -> Result<ClientRuntimeI
         hostname,
         client_version: env!("CARGO_PKG_VERSION").to_string(),
         platform: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
         os_version: get_os_version(),
         local_ip: get_local_ip(),
         system_locale: get_system_locale(),
@@ -316,13 +332,19 @@ fn update_dir() -> std::path::PathBuf {
     std::env::temp_dir().join("sayit-update")
 }
 
-/// 安装包落盘用的文件名：只取 URL 路径的最后一段，而且必须是普通的 `xxx.exe`。
+/// 更新包的扩展名：Windows 是 NSIS 安装程序，macOS 是装着 SayIt.app 的 zip（见 spawn_installer）。
+#[cfg(not(target_os = "macos"))]
+const UPDATE_PACKAGE_EXTENSION: &str = "exe";
+#[cfg(target_os = "macos")]
+const UPDATE_PACKAGE_EXTENSION: &str = "zip";
+
+/// 安装包落盘用的文件名：只取 URL 路径的最后一段，而且必须是普通的 `xxx.exe`（mac 上是 `xxx.zip`）。
 /// 原来直接 `url.split('/').last()`，一个带查询串或奇怪字符的地址就能让文件名跑偏。
 fn installer_file_name(url: &str) -> Option<String> {
     let parsed = reqwest::Url::parse(url).ok()?;
     let last = parsed.path_segments()?.last()?.to_string();
     let valid = last.len() <= 128
-        && last.to_ascii_lowercase().ends_with(".exe")
+        && last.to_ascii_lowercase().ends_with(&format!(".{UPDATE_PACKAGE_EXTENSION}"))
         && !last.starts_with('.')
         && last.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
     valid.then_some(last)
@@ -340,7 +362,7 @@ fn resolve_update_package(file_path: &str) -> Result<std::path::PathBuf, String>
     let is_exe = path
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("exe"));
+        .is_some_and(|e| e.eq_ignore_ascii_case(UPDATE_PACKAGE_EXTENSION));
     if !path.is_file() || path.parent() != Some(dir.as_path()) || !is_exe {
         return Err("The installer is not in the update directory".to_string());
     }
@@ -660,6 +682,77 @@ fn spawn_installer(installer_path: &str, relaunch: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// 把字符串包成 sh 的单引号字面量。
+#[cfg(target_os = "macos")]
+fn sh_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
+/// macOS：更新包是装着 `SayIt.app` 的 zip。和 Windows 一样起一个不依赖本进程存活的
+/// 「看门人」脚本：等本进程退出 → 解压 → 校验签名完整性 → 原地替换 `.app` → 拉起新版。
+///
+/// 替换走「先拷到旁边、再两次 rename」，不是先删再拷：关机或断电时脚本被杀在半路，
+/// 最坏也只是留下一个 `.sayit-new`/`.sayit-old` 目录，而不是一个被删掉一半的 SayIt。
+/// `/Applications` 没有写权限（非管理员账户）时替换会失败，此时在 Finder 里选中更新包，
+/// 让用户手动拖进去。
+#[cfg(target_os = "macos")]
+fn spawn_installer(installer_path: &str, relaunch: bool) -> Result<(), String> {
+    let bundle = crate::platform::macos::permissions::current_bundle_path()
+        .filter(|p| p.ends_with(".app"))
+        .ok_or_else(|| "SayIt is not running from an .app bundle".to_string())?;
+    if bundle.contains("/AppTranslocation/") {
+        return Err("SayIt is running from a temporary location; move it to the Applications folder first".to_string());
+    }
+    let script = macos_installer_script(installer_path, &bundle, std::process::id(), relaunch);
+    let script_path = std::env::temp_dir().join("sayit-update-relaunch.sh");
+    std::fs::write(&script_path, script).map_err(|e| format!("Failed to write the update script: {}", e))?;
+    std::process::Command::new("/bin/sh")
+        .arg(&script_path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to start the update script: {}", e))?;
+    Ok(())
+}
+
+/// 生成 macOS 更新看门人脚本：等 `pid` 退出 → 解压 `installer_path` → 校验签名 → 替换 `bundle` →
+/// （可选）重新打开。单独拆出来是为了能在单测里真跑一遍。
+#[cfg(target_os = "macos")]
+fn macos_installer_script(installer_path: &str, bundle: &str, pid: u32, relaunch: bool) -> String {
+    let relaunch_line = if relaunch {
+        "/usr/bin/open \"$APP\" --args --open-about\n"
+    } else {
+        ""
+    };
+    format!(
+        r#"#!/bin/sh
+PKG={pkg}
+APP={app}
+PID={pid}
+i=0
+while kill -0 "$PID" 2>/dev/null && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+WORK=$(/usr/bin/mktemp -d "${{TMPDIR:-/tmp}}/sayit-update.XXXXXX") || exit 1
+fail() {{ rm -rf "$WORK" "$APP.sayit-new"; /usr/bin/open -R "$PKG"; rm -f "$0"; exit 1; }}
+/usr/bin/ditto -x -k "$PKG" "$WORK" || fail
+NEW=$(/usr/bin/find "$WORK" -maxdepth 2 -name '*.app' -type d | head -n 1)
+[ -n "$NEW" ] || fail
+/usr/bin/codesign --verify --deep --strict "$NEW" >/dev/null 2>&1 || fail
+/usr/bin/xattr -dr com.apple.quarantine "$NEW" 2>/dev/null
+rm -rf "$APP.sayit-new" "$APP.sayit-old"
+/usr/bin/ditto "$NEW" "$APP.sayit-new" || fail
+mv "$APP" "$APP.sayit-old" || fail
+if ! mv "$APP.sayit-new" "$APP"; then mv "$APP.sayit-old" "$APP"; fail; fi
+rm -rf "$APP.sayit-old" "$WORK"
+{relaunch}rm -f "$0"
+"#,
+        pkg = sh_quote(installer_path),
+        app = sh_quote(bundle),
+        pid = pid,
+        relaunch = relaunch_line,
+    )
+}
+
 /// 系统是否正在关机或注销（GetSystemMetrics(SM_SHUTTINGDOWN)）。
 #[cfg(target_os = "windows")]
 fn system_is_shutting_down() -> bool {
@@ -681,7 +774,7 @@ pub fn install_downloaded_update(
     })?;
     let file_path = checked.to_string_lossy().trim_start_matches(r"\\?\").to_string();
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         use std::sync::atomic::Ordering;
         // 抢在 app.exit(0) 之前置位：那次退出同样会走 RunEvent::Exit，
@@ -694,8 +787,9 @@ pub fn install_downloaded_update(
         write_log_line(&format!("[update] installer launched by user (relaunch={})", relaunch));
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
+        let _ = (&file_path, relaunch);
         return Err("Automatic installation is not supported on this platform".to_string());
     }
 
@@ -750,7 +844,7 @@ pub fn install_pending_update_on_exit(app: &AppHandle) {
         }
     };
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         // relaunch=true：装完把应用拉回来并跳到关于页。见本函数上方注释里的取舍说明。
         match spawn_installer(&file_path, true) {
@@ -759,7 +853,7 @@ pub fn install_pending_update_on_exit(app: &AppHandle) {
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let _ = file_path;
 }
 
@@ -911,21 +1005,21 @@ mod update_path_tests {
     #[test]
     fn installer_name_comes_from_the_last_path_segment_only() {
         assert_eq!(
-            installer_file_name("https://sayitapp.site/api/desktop-updates/win32/x64/SayIt_0.2.2_x64-setup.exe").as_deref(),
-            Some("SayIt_0.2.2_x64-setup.exe")
+            installer_file_name(&format!("https://sayitapp.site/api/desktop-updates/win32/x64/SayIt_0.2.2_x64-setup.{ext}", ext = UPDATE_PACKAGE_EXTENSION)).as_deref(),
+            Some(format!("SayIt_0.2.2_x64-setup.{UPDATE_PACKAGE_EXTENSION}").as_str())
         );
         assert_eq!(
-            installer_file_name("https://sayitapp.site/a/SayIt.exe?x=../../evil").as_deref(),
-            Some("SayIt.exe")
+            installer_file_name(&format!("https://sayitapp.site/a/SayIt.{UPDATE_PACKAGE_EXTENSION}?x=../../evil")).as_deref(),
+            Some(format!("SayIt.{UPDATE_PACKAGE_EXTENSION}").as_str())
         );
         assert!(installer_file_name("https://sayitapp.site/a/run.bat").is_none());
-        assert!(installer_file_name("https://sayitapp.site/a/..%5Cevil.exe").is_none());
+        assert!(installer_file_name(&format!("https://sayitapp.site/a/..%5Cevil.{UPDATE_PACKAGE_EXTENSION}")).is_none());
         assert!(installer_file_name("https://sayitapp.site/").is_none());
     }
 
     #[test]
     fn packages_outside_the_update_directory_are_rejected() {
-        let outside = std::env::temp_dir().join(format!("sayit-not-update-{}.exe", uuid::Uuid::new_v4()));
+        let outside = std::env::temp_dir().join(format!("sayit-not-update-{}.{UPDATE_PACKAGE_EXTENSION}", uuid::Uuid::new_v4()));
         std::fs::write(&outside, b"MZ").unwrap();
         assert!(resolve_update_package(&outside.to_string_lossy()).is_err());
         let _ = std::fs::remove_file(&outside);
@@ -940,7 +1034,7 @@ mod update_path_tests {
     #[test]
     fn package_without_a_recorded_hash_is_not_reused() {
         std::fs::create_dir_all(update_dir()).unwrap();
-        let pkg = update_dir().join(format!("sayit-test-{}.exe", uuid::Uuid::new_v4()));
+        let pkg = update_dir().join(format!("sayit-test-{}.{UPDATE_PACKAGE_EXTENSION}", uuid::Uuid::new_v4()));
         std::fs::write(&pkg, b"MZ").unwrap();
         let path = pkg.to_string_lossy().to_string();
         assert_eq!(verify_update_package(path.clone(), None).unwrap(), false);
@@ -1038,5 +1132,82 @@ mod resume_download_tests {
         assert!(fetch_installer_part(&client, &url, &part, &mut |_, _, _, _| {}).await.is_err());
         assert!(!part.exists());
         server.join().unwrap();
+    }
+}
+
+/// macOS 更新脚本端到端：用两个 ad-hoc 签名的假 .app 真跑一遍「解压 → 验签 → 替换」。
+/// 路径里故意带空格和单引号，钉住 sh_quote。
+#[cfg(all(test, target_os = "macos"))]
+mod macos_installer_tests {
+    use super::macos_installer_script;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    /// 最小的 .app：可执行文件拷自 /usr/bin/true，版本号写进 Info.plist 用来区分新旧。
+    fn make_app(dir: &Path, version: &str) -> PathBuf {
+        let app = dir.join("SayIt.app");
+        let macos = app.join("Contents").join("MacOS");
+        std::fs::create_dir_all(&macos).unwrap();
+        std::fs::copy("/usr/bin/true", macos.join("sayit")).unwrap();
+        std::fs::write(
+            app.join("Contents").join("Info.plist"),
+            format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>sayit</string>
+<key>CFBundleIdentifier</key><string>com.sayit.installer-test</string>
+<key>CFBundleShortVersionString</key><string>{version}</string>
+</dict></plist>
+"#
+            ),
+        )
+        .unwrap();
+        let signed = Command::new("/usr/bin/codesign").args(["--force", "-s", "-"]).arg(&app).output().unwrap();
+        assert!(signed.status.success(), "codesign: {}", String::from_utf8_lossy(&signed.stderr));
+        app
+    }
+
+    #[test]
+    fn update_script_replaces_the_app_bundle_in_place() {
+        let root = std::env::temp_dir().join(format!("sayit installer 'test' {}", uuid::Uuid::new_v4()));
+        let installed_dir = root.join("Applications");
+        let new_dir = root.join("new");
+        std::fs::create_dir_all(&installed_dir).unwrap();
+        std::fs::create_dir_all(&new_dir).unwrap();
+        let installed = make_app(&installed_dir, "1.0.0");
+        let new_app = make_app(&new_dir, "2.0.0");
+        let pkg = root.join("SayIt_2.0.0_arm64.zip");
+        let zipped = Command::new("/usr/bin/ditto")
+            .args(["-c", "-k", "--norsrc", "--noextattr", "--keepParent"])
+            .arg(&new_app)
+            .arg(&pkg)
+            .status()
+            .unwrap();
+        assert!(zipped.success());
+
+        // 一个已经退出的进程号：脚本不用等
+        let mut child = Command::new("/usr/bin/true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+
+        let script_path = root.join("update.sh");
+        let script = macos_installer_script(&pkg.to_string_lossy(), &installed.to_string_lossy(), pid, false);
+        std::fs::write(&script_path, script).unwrap();
+        let status = Command::new("/bin/sh").arg(&script_path).status().unwrap();
+        assert!(status.success(), "更新脚本失败");
+
+        let plist = std::fs::read_to_string(installed.join("Contents").join("Info.plist")).unwrap();
+        assert!(plist.contains("2.0.0"), "旧版没被换掉");
+        assert!(!installed_dir.join("SayIt.app.sayit-new").exists());
+        assert!(!installed_dir.join("SayIt.app.sayit-old").exists());
+        assert!(!script_path.exists(), "脚本结束时应删掉自己");
+        let verified = Command::new("/usr/bin/codesign")
+            .args(["--verify", "--deep", "--strict"])
+            .arg(&installed)
+            .status()
+            .unwrap();
+        assert!(verified.success(), "换上去的 .app 签名应完好");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

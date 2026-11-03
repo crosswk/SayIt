@@ -21,3 +21,9 @@ VULKAN_SDK = "C:\\VulkanSDK\\1.4.350.0"
 # 还会读到被别的测试 unload 后的 backend=None。串行的额外代价≈0：推理本来就被
 # 锁串行化了，纯逻辑测试又都在毫秒级。
 RUST_TEST_THREADS = "1"
+
+# macOS 最低版本，与 tauri.macos.conf.json 的 minimumSystemVersion 保持一致。
+# `tauri build/dev` 会自己设这个变量，但直接跑 cargo（check / test / build）时没人设，
+# transcribe-cpp 的 CMake 就按本机系统版本编 ggml（实测 minos 26.5），编出来的东西
+# 在旧系统上可能直接崩，还和 tauri 构建的产物对不上缓存。只对 Apple 目标生效，Windows 无影响。
+MACOSX_DEPLOYMENT_TARGET = "14.0"

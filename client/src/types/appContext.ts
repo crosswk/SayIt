@@ -14,6 +14,8 @@ export interface ActiveAppContext {
   tid?: number
   processName?: string
   exePath?: string
+  /** macOS 的 Bundle ID（如 com.tencent.xinWeChat）；Windows 上没有 */
+  bundleId?: string
   windowTitle?: string
   windowClass?: string
   focusHwnd?: string

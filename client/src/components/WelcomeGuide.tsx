@@ -21,6 +21,12 @@ import { refreshPTTSetting, setShortcutCaptureActive } from '@/services/webviewK
 import appIcon from '@/assets/icon-128.png'
 import { t, type TranslationKey } from '@/i18n'
 import { useT } from '@/i18n/useT'
+import { IS_MAC } from '@/lib/platform'
+import { getDefault } from '@/services/defaults'
+import { MacPermissionsPanel } from '@/components/MacPermissionsPanel'
+
+/** 免提的默认键（Windows 右 Alt，mac 右 ⌘） */
+const DEFAULT_HANDS_FREE: string = getDefault<string>('shortcutHandsFree') || 'AltRight'
 
 /**
  * 免提键与「按住说话」撞在同一个键上时，两个功能会被同一次按键同时触发。
@@ -57,14 +63,25 @@ function KeyboardHint({ activeKeys, pressed }: { activeKeys: string[]; pressed?:
       { code: 'Period', label: '>' }, { code: 'Slash', label: '?' },
       { code: 'ShiftRight', label: 'Shift', w: 52 },
     ],
-    [
-      { code: 'ControlLeft', label: 'Ctrl', w: 42 },
-      { code: 'MetaLeft', label: 'Win', w: 34 },
-      { code: 'AltLeft', label: 'Alt', w: 34 },
-      { code: 'Space', label: t('keyName.Space'), w: 148 },
-      { code: 'AltRight', label: 'Alt', w: 34 },
-      { code: 'ControlRight', label: 'Ctrl', w: 42 },
-    ],
+    IS_MAC
+      ? [
+        // MacBook 的最下面一行：fn ⌃ ⌥ ⌘ 空格 ⌘ ⌥（右侧没有 ⌃）
+        { code: 'Fn', label: 'fn', w: 30 },
+        { code: 'ControlLeft', label: '⌃', w: 30 },
+        { code: 'AltLeft', label: '⌥', w: 30 },
+        { code: 'MetaLeft', label: '⌘', w: 38 },
+        { code: 'Space', label: t('keyName.Space'), w: 140 },
+        { code: 'MetaRight', label: '⌘', w: 38 },
+        { code: 'AltRight', label: '⌥', w: 30 },
+      ]
+      : [
+        { code: 'ControlLeft', label: 'Ctrl', w: 42 },
+        { code: 'MetaLeft', label: 'Win', w: 34 },
+        { code: 'AltLeft', label: 'Alt', w: 34 },
+        { code: 'Space', label: t('keyName.Space'), w: 148 },
+        { code: 'AltRight', label: 'Alt', w: 34 },
+        { code: 'ControlRight', label: 'Ctrl', w: 42 },
+      ],
   ]
 
   return (
@@ -136,10 +153,15 @@ interface WelcomeGuideProps {
   onComplete: () => void
 }
 
+/** 向导步骤。mac 多一步「权限」：没有辅助功能授权，热键和插字都用不了。 */
+const STEP_IDS = ['welcome', 'features', ...(IS_MAC ? ['permissions'] : []), 'hotkey', 'try', 'done'] as const
+type StepId = (typeof STEP_IDS)[number]
+
 export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
   const t = useT()
   const [step, setStep] = useState(0)
-  const [hfKey, setHfKey] = useState('AltRight')
+  const stepId: StepId = STEP_IDS[step] ?? 'welcome'
+  const [hfKey, setHfKey] = useState(DEFAULT_HANDS_FREE)
   const hfLabel = displayShortcut(hfKey).join(' + ')
   const [workMode, setWorkMode] = useState('')
   const [serverOk, setServerOk] = useState<boolean | null>(null)
@@ -152,7 +174,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
   const [pressedCodes, setPressedCodes] = useState<string[]>([])
   /** 这次按键为什么没被采纳（系统保留组合、被别的程序占用、和 PTT 撞） */
   const [captureError, setCaptureError] = useState('')
-  const hfKeyRef = useRef('AltRight')
+  const hfKeyRef = useRef(DEFAULT_HANDS_FREE)
   const settingsDirtyRef = useRef(false)
 
   /** 手指还按着时大号键帽跟着候选走，松开后回到已确认的那个 */
@@ -170,7 +192,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
   const hintActiveKeys = isPressing ? pressedCodes : [shownKey]
 
   useEffect(() => {
-    getSetting('shortcutHandsFree', 'AltRight').then((k) => {
+    getSetting('shortcutHandsFree', DEFAULT_HANDS_FREE).then((k) => {
       const key = k as string
       setHfKey(key)
       hfKeyRef.current = key
@@ -191,7 +213,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
   //
   // 只依赖 step，避免 hfKey 等 state 变化导致 effect 反复运行、钩子反复重启。
   useEffect(() => {
-    if (step !== 2) return
+    if (stepId !== 'hotkey') return
     setPttSuppressed(true)
     // 挂起本应用自己的全部热键（同设置页录制）：不挂起的话，按一个已经注册过的组合键
     // 会被 RegisterHotKey 抢走、webview 收不到 keydown，等于永远录不进来。
@@ -264,7 +286,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
     // 路径 2：兜底。万一某个键仍被原生钩子吞掉（只 emit 事件、webview 收不到 keydown），
     // 就按老办法确认一次，让这一步不至于卡死。webview 已经在处理时让位，避免重复提交。
     const unlistenHf = bridge.listen('toggle-hands-free', () => {
-      if (pressed.size === 0) commit(hfKeyRef.current || 'AltRight')
+      if (pressed.size === 0) commit(hfKeyRef.current || DEFAULT_HANDS_FREE)
     })
     const unlistenPttDown = bridge.listen('ptt-down', (event: unknown) => {
       const payload = event as { payload?: { pttSetting?: string } }
@@ -311,16 +333,16 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
         void persistHandsFreeShortcut(hfKeyRef.current)
       }
     }
-  }, [step])
+  }, [stepId])
 
   const canTest = workMode === 'server' && serverOk === true
-  const totalSteps = 5
+  const totalSteps = STEP_IDS.length
   const isLast = step === totalSteps - 1
 
   const renderStep = () => {
-    switch (step) {
+    switch (stepId) {
       // Step 0: 欢迎
-      case 0:
+      case 'welcome':
         return (
           <div className="flex flex-col items-center text-center">
             <img src={appIcon} alt="SayIt" className="mb-6 h-20 w-20 rounded-2xl" />
@@ -331,7 +353,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
         )
 
       // Step 1: 核心功能
-      case 1:
+      case 'features':
         return (
           <div>
             <h2 className="mb-5 text-center text-xl font-bold">{t('welcome.featuresTitle')}</h2>
@@ -357,8 +379,18 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
           </div>
         )
 
+      // macOS：辅助功能 + 麦克风授权（Windows 没有这一步）
+      case 'permissions':
+        return (
+          <div>
+            <h2 className="mb-2 text-center text-xl font-bold">{t('welcome.permissionsTitle')}</h2>
+            <p className="mb-5 text-center text-sm text-muted-foreground">{t('welcome.permissionsDesc')}</p>
+            <MacPermissionsPanel />
+          </div>
+        )
+
       // Step 2: 热键确认
-      case 2:
+      case 'hotkey':
         return (
           <div className="flex flex-col items-center text-center">
             <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
@@ -368,7 +400,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
             <p className="mt-2 text-sm text-muted-foreground">
               {keyConfirmed
                 ? t('welcome.hotkeyConfirmed')
-                : <HotkeyPrompt template={t('welcome.hotkeyPrompt')} keyLabel={getSingleKeyDisplay('AltRight')} />}
+                : <HotkeyPrompt template={t('welcome.hotkeyPrompt')} keyLabel={getSingleKeyDisplay(DEFAULT_HANDS_FREE)} />}
             </p>
 
             {/* 大号按键展示 */}
@@ -399,7 +431,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
             )}
             {!keyConfirmed && !captureError && (
               <p className="mt-4 text-xs text-muted-foreground/60">
-                {t('welcome.supportedKeys')}
+                {t(IS_MAC ? 'welcome.supportedKeysMac' : 'welcome.supportedKeys')}
               </p>
             )}
             {keyConfirmed && !captureError && (
@@ -411,7 +443,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
         )
 
       // Step 3: 试一试
-      case 3:
+      case 'try':
         return (
           <div>
             <h2 className="mb-5 text-center text-xl font-bold">{t('welcome.tryTitle')}</h2>
@@ -486,7 +518,7 @@ export default function WelcomeGuide({ onComplete }: WelcomeGuideProps) {
         )
 
       // Step 4: 完成
-      case 4:
+      case 'done':
         return (
           <div className="flex flex-col items-center text-center">
             <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10">

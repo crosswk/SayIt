@@ -1,6 +1,8 @@
 // 前端版本检查 — 直接请求后端 manifest API 比较版本号
 
 import { getOfficialUpdateBaseUrl, getUpdateBaseUrl, isOfficialUpdateChannel } from '@/services/runtimeConfig'
+import { getClientRuntimeInfo } from '@/services/bridge'
+import { IS_MAC } from '@/lib/platform'
 
 export interface VersionInfo {
   hasUpdate: boolean
@@ -74,6 +76,17 @@ export function resolveDownloadUrl(baseUrl: string, downloadPath: string | undef
   }
 }
 
+/**
+ * 更新通道 `{platform}/{arch}`，与服务端 releases 目录对应（server/backend/app/releases.py）。
+ * Windows 只发 x64；mac 按 CPU 架构分 arm64 / x64（WKWebView 的 UA 在 Apple 芯片上也写 Intel，
+ * 所以架构问 Rust）。
+ */
+async function updateChannel(): Promise<string> {
+  if (!IS_MAC) return 'win32/x64'
+  const info = await getClientRuntimeInfo().catch(() => null)
+  return info?.arch === 'x86_64' ? 'darwin/x64' : 'darwin/arm64'
+}
+
 async function fetchManifest(currentVersion: string, baseUrl: string): Promise<VersionInfo> {
   const base: VersionInfo = {
     hasUpdate: false,
@@ -87,7 +100,8 @@ async function fetchManifest(currentVersion: string, baseUrl: string): Promise<V
   }
 
   try {
-    const resp = await fetch(`${baseUrl}/api/desktop-updates/win32/x64/manifest`, {
+    const channel = await updateChannel()
+    const resp = await fetch(`${baseUrl}/api/desktop-updates/${channel}/manifest`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(10000),
     })

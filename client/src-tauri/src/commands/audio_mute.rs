@@ -8,9 +8,9 @@
 
 use serde::Serialize;
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use once_cell::sync::Lazy;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use std::sync::Mutex;
 
 /// 查询麦克风静音状态的结果。
@@ -26,6 +26,11 @@ pub struct MicMuteState {
 /// 保存的「静音前的原始状态」。None 表示当前未处于我们施加的静音中。
 #[cfg(windows)]
 static SAVED_MUTE_STATE: Lazy<Mutex<Option<bool>>> = Lazy::new(|| Mutex::new(None));
+
+/// macOS：静音前默认输出设备的状态（Mute 属性或各通道音量）。None = 当前不在我们施加的静音中。
+#[cfg(target_os = "macos")]
+static SAVED_OUTPUT_STATE: Lazy<Mutex<Option<crate::platform::macos::audio::SavedOutputState>>> =
+    Lazy::new(|| Mutex::new(None));
 
 /// 获取默认渲染端点（扬声器）的音量控制接口，并在其上执行闭包。
 #[cfg(windows)]
@@ -100,7 +105,19 @@ pub fn mute_system_output() -> Result<bool, String> {
             Ok(true)
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let mut saved = SAVED_OUTPUT_STATE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        // 仅在首次静音时保存原状态，避免重复调用覆盖真实原值
+        if saved.is_some() {
+            return Ok(true);
+        }
+        let state = crate::platform::macos::audio::mute_default_output()?;
+        crate::commands::system::write_log_line(&format!("[RUST] [audio_mute] muted output (saved={:?})", state));
+        *saved = Some(state);
+        Ok(true)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Ok(false)
     }
@@ -130,7 +147,22 @@ pub fn restore_system_output() -> Result<bool, String> {
             None => Ok(false),
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let saved = SAVED_OUTPUT_STATE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        match saved {
+            Some(state) => {
+                let restored = crate::platform::macos::audio::restore_output(state);
+                crate::commands::system::write_log_line(&format!(
+                    "[RUST] [audio_mute] restored output (restored={} saved={:?})",
+                    restored, state
+                ));
+                Ok(restored)
+            }
+            None => Ok(false),
+        }
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Ok(false)
     }
@@ -304,10 +336,51 @@ pub fn get_mic_mute_state(device_label: Option<String>) -> MicMuteState {
             }
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        query_mic_mute_macos(device_label.as_deref())
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = device_label;
         MicMuteState { matched: false, muted: false }
+    }
+}
+
+/// macOS：按名字唯一匹配输入设备，读输入方向的 Mute 属性。
+/// 多数内置麦克风没有 Mute 属性，这时返回 matched=false，前端退回信号检测。
+#[cfg(target_os = "macos")]
+fn query_mic_mute_macos(label: Option<&str>) -> MicMuteState {
+    use crate::platform::macos::audio;
+    let not_matched = MicMuteState { matched: false, muted: false };
+    let device = match label.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(target_label) => {
+            let target = normalize_mic_label(target_label);
+            let mut matched = None;
+            for id in audio::input_devices() {
+                let Some(name) = audio::device_name(id) else { continue };
+                if normalize_mic_label(&name) != target {
+                    continue;
+                }
+                if matched.is_some() {
+                    // 同名设备无法可靠区分；宁可回退信号检测，也不查询错设备。
+                    return not_matched;
+                }
+                matched = Some(id);
+            }
+            match matched {
+                Some(id) => id,
+                None => return not_matched,
+            }
+        }
+        None => match audio::default_device(true) {
+            Some(id) => id,
+            None => return not_matched,
+        },
+    };
+    match audio::device_muted(device, true) {
+        Some(muted) => MicMuteState { matched: true, muted },
+        None => not_matched,
     }
 }
 

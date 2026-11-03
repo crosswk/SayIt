@@ -326,7 +326,12 @@ pub fn process_memory_mb() -> u64 {
         }
         0
     }
-    #[cfg(not(windows))]
+    // macOS：phys_footprint（与「活动监视器」的「内存」列一致）
+    #[cfg(target_os = "macos")]
+    {
+        crate::platform::macos::sysinfo::process_memory_mb()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         0
     }
@@ -407,7 +412,8 @@ fn resolve_backend(pref: &str) -> Backend {
         "cpu" => Backend::Cpu,
         "gpu" => {
             // 只有真的注册了 GPU 设备才请求它，否则退回 Auto，避免加载直接失败。
-            for b in [Backend::Cuda, Backend::Vulkan] {
+            // macOS 上是 Metal（Windows 构建没有编入 Metal，backend_available 恒为 false）
+            for b in [Backend::Cuda, Backend::Vulkan, Backend::Metal] {
                 if transcribe_cpp::backend_available(b) {
                     return b;
                 }

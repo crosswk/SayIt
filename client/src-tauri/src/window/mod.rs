@@ -558,10 +558,12 @@ impl WindowState {
 
     /// 悬浮窗正显示时，把它重新顶到 topmost 带最上层。供前台窗口切换钩子调用，
     /// 让用户切到/打开别的置顶程序时，悬浮窗立即回到最上面。
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub fn overlay_visible(&self) -> bool {
         self.active_show_id.load(Ordering::SeqCst) != 0
     }
 
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub fn reassert_overlay_topmost_if_visible(&self, app: &AppHandle) {
         if !self.overlay_visible() {
             return;
@@ -700,8 +702,13 @@ impl WindowState {
         };
 
         let position_error = self.apply_native_layout(app, &overlay, &layout);
-        let show_error = overlay.show().err().map(|error| format!("{:?}", error));
+        let show_error = show_overlay_window(&overlay).err();
+        #[cfg(not(target_os = "macos"))]
         let top_error = overlay.set_always_on_top(true).err().map(|error| format!("{:?}", error));
+        // macOS 不调 set_always_on_top：tao 会把层级异步改回 NSFloatingWindowLevel（实测层级 5），
+        // 和下面 reassert 的主线程回调谁先执行没有保证；层级统一由 reassert 设成 NSStatusWindowLevel。
+        #[cfg(target_os = "macos")]
+        let top_error: Option<String> = None;
         // set_always_on_top(true) 在状态未变时可能是 no-op，这里再用原生 SetWindowPos 强制
         // 把窗口顶到 topmost 带最上层，确保即使下方已有别的置顶窗口也能压过它。
         reassert_overlay_topmost(app);
@@ -733,6 +740,25 @@ impl WindowState {
         let base_width = *self.overlay_base_width.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let css_zoom = self.css_zoom();
         let target_monitor = self.overlay_monitor.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+
+        // macOS：各显示器缩放可以不同，物理像素不能跨屏比较，全程按逻辑坐标算。
+        #[cfg(target_os = "macos")]
+        {
+            let bounds = macos_overlay_bounds(app, target_monitor.as_ref(), layout, base_width, css_zoom);
+            let position_error = overlay.set_position(tauri::Position::Logical(
+                tauri::LogicalPosition::new(bounds.0, bounds.1),
+            )).err();
+            let size_error = overlay.set_size(tauri::Size::Logical(
+                tauri::LogicalSize::new(bounds.2, bounds.3),
+            )).err();
+            // 不调 set_always_on_top：它会把层级改回 NSFloatingWindowLevel，层级交给 reassert_overlay_topmost
+            return match (position_error, size_error) {
+                (None, None) => None,
+                (position, size) => Some(format!("position={:?} size={:?}", position, size)),
+            };
+        }
+
+        #[cfg(not(target_os = "macos"))]
         if let Some(bounds) = target_monitor
             .as_ref()
             .and_then(|value| calc_monitor_overlay_bounds(app, value, layout, base_width, css_zoom))
@@ -751,18 +777,21 @@ impl WindowState {
             };
         }
 
-        let bounds = calc_overlay_bounds(app, layout, base_width, css_zoom);
-        let position_error = overlay.set_position(tauri::Position::Logical(
-            tauri::LogicalPosition::new(bounds.0, bounds.1),
-        )).err();
-        let size_error = overlay.set_size(tauri::Size::Logical(
-            tauri::LogicalSize::new(bounds.2, bounds.3),
-        )).err();
-        let _ = overlay.set_always_on_top(true);
+        #[cfg(not(target_os = "macos"))]
+        {
+            let bounds = calc_overlay_bounds(app, layout, base_width, css_zoom);
+            let position_error = overlay.set_position(tauri::Position::Logical(
+                tauri::LogicalPosition::new(bounds.0, bounds.1),
+            )).err();
+            let size_error = overlay.set_size(tauri::Size::Logical(
+                tauri::LogicalSize::new(bounds.2, bounds.3),
+            )).err();
+            let _ = overlay.set_always_on_top(true);
 
-        match (position_error, size_error) {
-            (None, None) => None,
-            (position, size) => Some(format!("position={:?} size={:?}", position, size)),
+            match (position_error, size_error) {
+                (None, None) => None,
+                (position, size) => Some(format!("position={:?} size={:?}", position, size)),
+            }
         }
     }
 
@@ -848,8 +877,11 @@ impl WindowState {
             Ok(overlay) => {
                 let position_error = self.apply_native_layout(app, &overlay, &layout);
                 set_overlay_interactivity(&overlay, layout.is_interactive());
+                // macOS：一建出来就设好悬浮层属性（层级、跨桌面空间、失活不隐藏）
+                #[cfg(target_os = "macos")]
+                reassert_overlay_topmost(app);
                 let show_error = if show_immediately {
-                    overlay.show().err().map(|error| format!("{:?}", error))
+                    show_overlay_window(&overlay).err()
                 } else {
                     None
                 };
@@ -918,20 +950,69 @@ fn reassert_overlay_topmost(app: &AppHandle) {
     }
 }
 
-#[cfg(not(windows))]
+/// macOS：重设悬浮层属性（`set_always_on_top` 会把层级改回普通置顶），并在可见时
+/// 不激活地放到最前。NSWindow 的方法只能在主线程调用。
+#[cfg(target_os = "macos")]
+fn reassert_overlay_topmost(app: &AppHandle) {
+    let Some(overlay) = app.get_webview_window("overlay") else { return; };
+    let window = overlay.clone();
+    let _ = overlay.run_on_main_thread(move || {
+        if let Ok(ns_window) = window.ns_window() {
+            unsafe {
+                crate::platform::macos::appkit::configure_overlay_window(ns_window);
+                if crate::platform::macos::appkit::window_is_visible(ns_window) {
+                    crate::platform::macos::appkit::order_front_regardless(ns_window);
+                }
+            }
+        }
+    });
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn reassert_overlay_topmost(_app: &AppHandle) {}
 
+/// 显示悬浮窗且不抢焦点。
+///
+/// Windows：`show()` + 后面的 SetWindowPos(SWP_NOACTIVATE)（见 reassert_overlay_topmost）。
+/// macOS：`show()` 会走 makeKeyAndOrderFront 把它设成 key window，这里改用
+/// `orderFrontRegardless`，不改变键盘焦点。
+fn show_overlay_window(overlay: &tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let window = overlay.clone();
+        overlay
+            .run_on_main_thread(move || {
+                if let Ok(ns_window) = window.ns_window() {
+                    unsafe {
+                        crate::platform::macos::appkit::configure_overlay_window(ns_window);
+                        crate::platform::macos::appkit::order_front_regardless(ns_window);
+                    }
+                }
+            })
+            .map_err(|error| format!("{:?}", error))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        overlay.show().map_err(|error| format!("{:?}", error))
+    }
+}
+
 /// 主窗网页进程崩溃后的自动重载次数记录（时间戳，毫秒）。
+#[cfg_attr(not(windows), allow(dead_code))]
 static MAIN_RENDERER_RELOADS: Mutex<Vec<i64>> = Mutex::new(Vec::new());
+#[cfg_attr(not(windows), allow(dead_code))]
 const MAIN_RENDERER_RELOAD_WINDOW_MS: i64 = 5 * 60 * 1000;
+#[cfg_attr(not(windows), allow(dead_code))]
 const MAIN_RENDERER_RELOAD_MAX: usize = 3;
 
 /// 这次崩溃还能不能自动重载：5 分钟内最多 3 次，超过就停手，避免反复崩溃时无限重载。
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn main_renderer_reload_allowed(now_ms: i64) -> bool {
     let mut history = MAIN_RENDERER_RELOADS.lock().unwrap_or_else(|p| p.into_inner());
     reload_allowed_in_window(&mut history, now_ms, MAIN_RENDERER_RELOAD_WINDOW_MS, MAIN_RENDERER_RELOAD_MAX)
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn reload_allowed_in_window(history: &mut Vec<i64>, now_ms: i64, window_ms: i64, max: usize) -> bool {
     history.retain(|t| now_ms - *t < window_ms);
     if history.len() >= max {
@@ -975,9 +1056,26 @@ pub fn set_main_window_memory_low(window: &tauri::WebviewWindow, low: bool) {
     let _ = (window, low);
 }
 
+/// macOS：主窗口藏起来时把 Dock 图标也收起（只留菜单栏图标，像常驻工具一样），
+/// 主窗口显示时再放回来。Windows 上什么都不做（任务栏按钮跟着窗口走）。
+pub fn set_dock_icon_visible(app: &AppHandle, visible: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let policy = if visible {
+            tauri::ActivationPolicy::Regular
+        } else {
+            tauri::ActivationPolicy::Accessory
+        };
+        let _ = app.set_activation_policy(policy);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, visible);
+}
+
 /// 显示主窗的统一入口：恢复内存目标、show、解除最小化、抢焦点。
 /// 只 show 不 unminimize 会让以最小化状态诞生的窗口停在屏幕外（pitfalls #11）。
 pub fn show_main_window(window: &tauri::WebviewWindow) {
+    set_dock_icon_visible(window.app_handle(), true);
     set_main_window_memory_low(window, false);
     let _ = window.show();
     let _ = window.unminimize();
@@ -987,6 +1085,7 @@ pub fn show_main_window(window: &tauri::WebviewWindow) {
 /// 主窗藏到托盘的统一入口。
 pub fn hide_main_window(window: &tauri::Window) {
     let _ = window.hide();
+    set_dock_icon_visible(window.app_handle(), false);
     if let Some(webview_window) = window.app_handle().get_webview_window(window.label()) {
         set_main_window_memory_low(&webview_window, true);
     }
@@ -1379,6 +1478,28 @@ mod tests {
         assert!(y as i64 + height as i64 <= 1318, "bottom={}", y as i64 + height as i64);
     }
 
+    /// macOS：按整屏矩形找可用区域；Tauri 物理像素取整带来的半个点误差也要能对上。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_visible_area_is_matched_by_screen_frame() {
+        use crate::platform::macos::appkit::ScreenArea;
+        let areas = [
+            // 主屏：顶上 25 点菜单栏，底下 70 点程序坞
+            ScreenArea { frame: (0.0, 0.0, 1440.0, 900.0), visible: (0.0, 25.0, 1440.0, 805.0) },
+            // 右侧外接屏，比主屏高出 180 点
+            ScreenArea { frame: (1440.0, -180.0, 1920.0, 1080.0), visible: (1440.0, -155.0, 1920.0, 1055.0) },
+        ];
+        assert_eq!(
+            super::visible_area_for_frame((0.0, 0.0, 1440.0, 900.0), &areas),
+            Some((0.0, 25.0, 1440.0, 805.0)),
+        );
+        assert_eq!(
+            super::visible_area_for_frame((1440.5, -180.0, 1920.0, 1079.5), &areas),
+            Some((1440.0, -155.0, 1920.0, 1055.0)),
+        );
+        assert_eq!(super::visible_area_for_frame((0.0, 0.0, 1280.0, 800.0), &areas), None);
+    }
+
     /// 依次喂入 payload，返回每一步之后的布局。只驱动 apply_payload_layout，
     /// 不碰窗口，所以不需要 AppHandle。
     fn layouts_after(payloads: &[serde_json::Value]) -> Vec<OverlayLayout> {
@@ -1618,7 +1739,104 @@ fn overlay_bounds_in_work_area(
     (x as i32, y as i32, width as u32, height as u32)
 }
 
+/// macOS：在前台窗口所在显示器（取不到就用主显示器）的工作区底部居中放置，全程逻辑坐标。
+///
+/// `target` 是 context::capture_foreground_monitor 给的前台窗口矩形（逻辑点）。
+/// Tauri 的显示器位置/尺寸是「逻辑点 × 该屏缩放」，各自除以自己的缩放就回到统一的逻辑坐标系。
+#[cfg(target_os = "macos")]
+fn macos_overlay_bounds(
+    app: &AppHandle,
+    target: Option<&MonitorBounds>,
+    layout: &OverlayLayout,
+    base_width: f64,
+    css_zoom: f64,
+) -> (f64, f64, f64, f64) {
+    let monitors = app.available_monitors().unwrap_or_default();
+    let logical_rect = |monitor: &tauri::Monitor| {
+        let scale = monitor.scale_factor().max(0.1);
+        let position = monitor.position();
+        let size = monitor.size();
+        (
+            position.x as f64 / scale,
+            position.y as f64 / scale,
+            size.width as f64 / scale,
+            size.height as f64 / scale,
+        )
+    };
+    let by_target = target.and_then(|t| {
+        let cx = (t.left as f64 + t.right as f64) / 2.0;
+        let cy = (t.top as f64 + t.bottom as f64) / 2.0;
+        monitors.iter().find(|monitor| {
+            let (x, y, w, h) = logical_rect(monitor);
+            cx >= x && cx < x + w && cy >= y && cy < y + h
+        })
+    });
+    let primary = app.primary_monitor().ok().flatten();
+    let Some(monitor) = by_target.or(primary.as_ref()) else {
+        return calc_overlay_bounds(app, layout, base_width, css_zoom);
+    };
+    let scale = monitor.scale_factor().max(0.1);
+    let work = macos_work_area(monitor);
+    let left = work.position.x as f64 / scale;
+    let top = work.position.y as f64 / scale;
+    let right = left + work.size.width as f64 / scale;
+    let bottom = top + work.size.height as f64 / scale;
+    let (x, y, width, height) = overlay_bounds_in_work_area(
+        (left.round() as i64, top.round() as i64, right.round() as i64, bottom.round() as i64),
+        1.0,
+        layout.dimensions(base_width),
+        css_zoom,
+    );
+    (x as f64, y as f64, width as f64, height as f64)
+}
+
+/// macOS：显示器工作区（去掉菜单栏和程序坞），单位与 Tauri 相同（逻辑点 × 该屏缩放）。
+///
+/// 不直接用 `Monitor::work_area()`：Tauri 在 macOS 上只按程序坞修正了 x，y 仍取整屏顶边，
+/// 高度却已扣掉菜单栏和程序坞，整块工作区因此上移了一个菜单栏的高度。这里按
+/// NSScreen.visibleFrame 重算；对不上 NSScreen 时退回 Tauri 的值。
+#[cfg(target_os = "macos")]
+pub(crate) fn macos_work_area(monitor: &tauri::Monitor) -> tauri::PhysicalRect<i32, u32> {
+    let scale = monitor.scale_factor().max(0.1);
+    let position = monitor.position();
+    let size = monitor.size();
+    let frame = (
+        position.x as f64 / scale,
+        position.y as f64 / scale,
+        size.width as f64 / scale,
+        size.height as f64 / scale,
+    );
+    let areas = crate::platform::macos::appkit::screen_areas();
+    match visible_area_for_frame(frame, &areas) {
+        Some((x, y, width, height)) => tauri::PhysicalRect {
+            position: tauri::PhysicalPosition::new((x * scale).round() as i32, (y * scale).round() as i32),
+            size: tauri::PhysicalSize::new(
+                (width * scale).round().max(1.0) as u32,
+                (height * scale).round().max(1.0) as u32,
+            ),
+        },
+        None => *monitor.work_area(),
+    }
+}
+
+/// 按整屏矩形找到对应显示器的可用区域。容差 2 个逻辑点，吸收 Tauri 物理像素取整带来的误差。
+#[cfg(target_os = "macos")]
+fn visible_area_for_frame(
+    frame: (f64, f64, f64, f64),
+    areas: &[crate::platform::macos::appkit::ScreenArea],
+) -> Option<(f64, f64, f64, f64)> {
+    const TOLERANCE: f64 = 2.0;
+    let close = |a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)| {
+        (a.0 - b.0).abs() <= TOLERANCE
+            && (a.1 - b.1).abs() <= TOLERANCE
+            && (a.2 - b.2).abs() <= TOLERANCE
+            && (a.3 - b.3).abs() <= TOLERANCE
+    };
+    areas.iter().find(|area| close(area.frame, frame)).map(|area| area.visible)
+}
+
 /// 在录音开始时的前台窗口所在显示器底部居中放置。
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn calc_monitor_overlay_bounds(
     app: &AppHandle,
     target: &MonitorBounds,

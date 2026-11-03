@@ -15,12 +15,14 @@ mod defaults;
 mod net_policy;
 mod path_guard;
 mod ipc_body;
+mod platform;
 
 use storage::Storage;
 use window::WindowState;
 use keyboard::KeyboardHookManager;
 use context::ContextDetector;
 use tauri::{Manager, Emitter};
+#[cfg(not(target_os = "macos"))]
 use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
 use std::thread;
 
@@ -35,10 +37,12 @@ use std::thread;
 // 也不要加回 --ignore-certificate-errors：它让所有主机都不校验证书，网络被截获时
 // 识别结果和更新清单都能被换掉。自建服务器的自签名证书改由主窗的
 // ServerCertificateErrorDetected 处理器按地址放行（见 net_policy::cert_error_allowed）。
+#[cfg_attr(not(windows), allow(dead_code))]
 const WEBVIEW2_BROWSER_ARGS: &str =
     "--disable-backgrounding-occluded-windows --disable-renderer-backgrounding \
      --disable-background-timer-throttling";
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn browser_args_fingerprint(value: &str) -> String {
     // Stable FNV-1a fingerprint: enough to compare field reports without logging a
     // potentially sensitive inherited proxy argument verbatim.
@@ -183,13 +187,19 @@ fn notify_storage_recovery(recovery: storage::StorageRecovery) {
             MessageBoxW(None, &HSTRING::from(text), &HSTRING::from("SayIt"), MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
         }
     });
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    crate::platform::macos::appkit::show_alert_async("SayIt", &text);
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let _ = text;
 }
 
 /// 主窗的图标和 WebView2 事件处理器（麦克风权限、证书、渲染进程崩溃）。
 /// 启动时和主窗被重建时都要走一遍。
 fn prepare_main_window(app: &tauri::AppHandle, main_window: &tauri::WebviewWindow) {
+    // macOS：没有 WebView2 那几个处理器；麦克风授权由 wry 的 WKUIDelegate 默认放行，
+    // 后台节流在 tauri.macos.conf.json 里用 backgroundThrottling 关掉。
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
     let ico_bytes = include_bytes!("../icons/icon.ico");
     if let Ok(icon) = tauri::image::Image::from_bytes(ico_bytes) {
         let _ = main_window.set_icon(icon);
@@ -343,6 +353,13 @@ fn prepare_main_window(app: &tauri::AppHandle, main_window: &tauri::WebviewWindo
     }
 }
 
+/// 第二次启动（交给已在运行的实例）时，是不是应该保持隐藏：带了 `--minimized`（登录项）、
+/// 又不是自动更新装完后要跳关于页的那次重新打开。目前只在 macOS 上用。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn second_launch_should_stay_hidden(args: &[String]) -> bool {
+    args.iter().any(|a| a == "--minimized") && !args.iter().any(|a| a == "--open-about")
+}
+
 /// 主窗 webview 建不起来时（`failed to create webview ... 0x80070057`），窗口对象没了，
 /// 托盘和悬浮窗还在，但录音、连接全在主窗网页里 —— 用户看到的是「热键没反应」，没有任何提示。
 /// 2026-10-12 开发期间撞到 7 次（多在 tauri dev 连续重启时），正式版少见但一旦发生就是整个软件失灵。
@@ -420,10 +437,12 @@ fn recreate_main_window(app: &tauri::AppHandle, launched_minimized: bool) {
 
 fn notify_main_window_unavailable() {
     let zh = matches!(locale::system_ui_lang(), locale::Lang::ZhCn);
-    let text = if zh {
-        "SayIt 的主界面没能启动，语音输入暂时不可用。\n\n请从托盘图标右键退出 SayIt，再重新打开。如果反复出现，请在设置里提交诊断。"
-    } else {
-        "SayIt's main window failed to start, so voice input is unavailable for now.\n\nPlease quit SayIt from the tray icon and open it again. If this keeps happening, send a diagnostics report from Settings."
+    // mac 上没有托盘、也不用右键：退出入口是屏幕顶部菜单栏里的 SayIt 图标
+    let text = match (zh, cfg!(target_os = "macos")) {
+        (true, false) => "SayIt 的主界面没能启动，语音输入暂时不可用。\n\n请从托盘图标右键退出 SayIt，再重新打开。如果反复出现，请在设置里提交诊断。",
+        (false, false) => "SayIt's main window failed to start, so voice input is unavailable for now.\n\nPlease quit SayIt from the tray icon and open it again. If this keeps happening, send a diagnostics report from Settings.",
+        (true, true) => "SayIt 的主界面没能启动，语音输入暂时不可用。\n\n请点屏幕顶部菜单栏里的 SayIt 图标，选「退出 SayIt」，再重新打开。如果反复出现，请在设置里提交诊断。",
+        (false, true) => "SayIt's main window failed to start, so voice input is unavailable for now.\n\nPlease quit SayIt from its icon in the menu bar at the top of the screen, then open it again. If this keeps happening, send a diagnostics report from Settings.",
     };
     #[cfg(target_os = "windows")]
     thread::spawn(move || {
@@ -433,7 +452,9 @@ fn notify_main_window_unavailable() {
             MessageBoxW(None, &HSTRING::from(text), &HSTRING::from("SayIt"), MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
         }
     });
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    crate::platform::macos::appkit::show_alert_async("SayIt", &text);
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let _ = text;
 }
 
@@ -504,6 +525,9 @@ fn main() {
     // or not focused. Without these flags, WebView2 throttles setInterval timers in the
     // background, delaying the heartbeat well past the server's idle timeout and causing
     // spurious "idle timeout" disconnects while the app is just sitting idle in the tray.
+    // macOS 没有 WebView2；隐藏主窗的节流在 tauri.macos.conf.json 用 backgroundThrottling 关掉。
+    #[cfg(windows)]
+    {
     let (browser_args_source, browser_args) = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
         Ok(value) => ("inherited", value),
         Err(_) => {
@@ -521,6 +545,12 @@ fn main() {
         browser_args.len(),
         browser_args_fingerprint(&browser_args),
     );
+    }
+
+    // macOS：同样要赶在第一个 WebView 创建之前——关掉 WKWebView 输入框里的智能引号和破折号，
+    // 否则 Prompt、热词里打的 " 和 -- 会被换成弯引号和长破折号（见 appkit.rs）。
+    #[cfg(target_os = "macos")]
+    platform::macos::appkit::disable_webkit_smart_substitutions();
 
     let db_path = dirs::data_local_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -624,6 +654,13 @@ fn main() {
         // 单实例锁：必须作为第一个插件注册。第二次启动时不新开进程，
         // 而是唤起已有窗口，避免两个客户端同时收全局热键、各插一份文本。
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // macOS：登录项带 --minimized 启动时 SayIt 可能已经在跑（用户先手动打开了），
+            // 这时把启动请求交给已有实例就够了，不能把主窗口调出来。
+            #[cfg(target_os = "macos")]
+            if second_launch_should_stay_hidden(&args) {
+                log::info!("Second launch with --minimized while already running; staying hidden");
+                return;
+            }
             if let Some(w) = app.get_webview_window("main") {
                 window::show_main_window(&w);
                 if args.iter().any(|a| a == "--open-about") {
@@ -637,6 +674,10 @@ fn main() {
         .manage(context_detector)
         .manage(commands::update_notification::UpdateNotificationState::default())
         .setup(move |app| {
+            // macOS：登录时要不要启动只由「登录时自动启动」决定，不让系统的「重新登录时重新打开窗口」
+            // 把 SayIt 当普通应用不带参数地拉起来（那样主窗口会在登录后弹出来，见 appkit.rs）。
+            #[cfg(target_os = "macos")]
+            platform::macos::appkit::disable_relaunch_on_login();
             // SayIt's main window and lazy overlay share one WebView2 user-data directory.
             // Per-window browser arguments violate WebView2's environment compatibility
             // contract. Fail loudly during startup instead of leaving a half-working app
@@ -693,6 +734,8 @@ fn main() {
                 } else {
                     log::info!("Launched with --minimized, staying hidden in tray");
                     window::set_main_window_memory_low(&main_window, true);
+                    // macOS：开机自启时只出现在菜单栏，不在 Dock 里占位
+                    window::set_dock_icon_visible(app.handle(), false);
                 }
                 if launched_open_about {
                     let _ = main_window.emit("open-about", ());
@@ -700,7 +743,13 @@ fn main() {
             }
             spawn_main_window_watchdog(app.handle().clone(), launched_minimized);
 
-            // 系统托盘图标
+            // 系统托盘图标（macOS：菜单栏图标 + 原生菜单）
+            #[cfg(target_os = "macos")]
+            commands::tray::build_macos_tray(app.handle())?;
+            // macOS 顶部菜单栏里的应用菜单（中文 / 英文跟随界面语言，带 ⌘, 打开设置）
+            #[cfg(target_os = "macos")]
+            commands::tray::install_macos_app_menu(app.handle())?;
+            #[cfg(not(target_os = "macos"))]
             {
                 // 自定义菜单窗口在启动时预创建并隐藏；右键时只定位、显示，没有首开延迟。
                 commands::tray::create_tray_menu_window(app.handle())?;
@@ -863,6 +912,7 @@ fn main() {
             commands::tray::show_main_from_tray,
             commands::tray::hide_tray_menu,
             commands::tray::quit_from_tray,
+            commands::tray::refresh_native_menus,
             // Audio
             commands::audio::save_audio_file,
             commands::audio::save_pcm_as_wav,
@@ -876,6 +926,10 @@ fn main() {
             commands::audio_mute::mute_system_output,
             commands::audio_mute::restore_system_output,
             commands::audio_mute::get_mic_mute_state,
+            // Permissions（macOS 的辅助功能 / 麦克风授权状态与引导）
+            commands::permissions::get_platform_permissions,
+            commands::permissions::request_accessibility_permission,
+            commands::permissions::open_privacy_settings,
             // Shortcuts
             commands::shortcuts::shortcuts_changed,
             commands::shortcuts::test_shortcut,
@@ -983,10 +1037,38 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
+            // macOS：主窗藏起来后点 Dock 图标，系统发 Reopen，此时把主窗显示出来。
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(w) = app_handle.get_webview_window("main") {
+                    window::show_main_window(&w);
+                }
+            }
             if let tauri::RunEvent::Exit = event {
                 commands::system::install_pending_update_on_exit(app_handle);
             }
         });
+}
+
+#[cfg(test)]
+mod second_launch_tests {
+    use super::second_launch_should_stay_hidden;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn login_item_launch_while_running_stays_hidden() {
+        assert!(second_launch_should_stay_hidden(&args(&["/Applications/SayIt.app/Contents/MacOS/sayit", "--minimized"])));
+    }
+
+    #[test]
+    fn manual_launch_and_post_update_relaunch_show_the_window() {
+        assert!(!second_launch_should_stay_hidden(&args(&["/Applications/SayIt.app/Contents/MacOS/sayit"])));
+        assert!(!second_launch_should_stay_hidden(&args(&["sayit", "--minimized", "--open-about"])));
+        assert!(!second_launch_should_stay_hidden(&args(&["sayit", "--open-about"])));
+    }
 }
 
 #[cfg(test)]

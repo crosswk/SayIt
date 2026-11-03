@@ -1,0 +1,10 @@
+{
+  "identifier": "macos-main-window",
+  "description": "macOS only: dragging the main window by its custom title bar (data-tauri-drag-region calls startDragging; Windows uses -webkit-app-region and never needs this), and matching the window appearance to the app theme so native menus (select popups, context menus) use the right light/dark look.",
+  "platforms": ["macOS"],
+  "windows": ["main"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-theme"
+  ]
+}

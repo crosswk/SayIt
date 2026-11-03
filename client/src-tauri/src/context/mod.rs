@@ -2,10 +2,18 @@
 //! and focused element to determine text injection strategy.
 //! Also runs a WinEvent hook to push context updates when the foreground window changes.
 
+#[cfg(target_os = "macos")]
+mod macos;
+
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
+#[cfg(windows)]
+use std::sync::atomic::Ordering;
+#[cfg(windows)]
 use std::thread;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(windows)]
+use tauri::Manager;
 
 #[cfg(windows)]
 use windows::Win32::Foundation::HWND;
@@ -74,6 +82,9 @@ pub struct AppContext {
     pub is_read_only: Option<bool>,
     #[serde(rename = "isPassword")]
     pub is_password: bool,
+    /// macOS 的 Bundle ID（如 `com.tencent.xinWeChat`）。Windows 上为空，不进载荷。
+    #[serde(rename = "bundleId", skip_serializing_if = "String::is_empty")]
+    pub bundle_id: String,
     /// Present only when the user explicitly enabled context-aware writing. Ordinary foreground
     /// tracking and diagnostics never read or retain editor text.
     #[serde(rename = "textContext", skip_serializing_if = "Option::is_none")]
@@ -91,6 +102,7 @@ pub struct MonitorBounds {
 }
 
 pub struct ContextDetector {
+    #[cfg_attr(not(windows), allow(dead_code))]
     winevent_running: AtomicBool,
 }
 
@@ -640,8 +652,30 @@ fn uia_control_type_name(id: i32) -> String {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+#[allow(dead_code)]
 pub fn capture_context(reason: &str) -> AppContext {
+    macos::capture_context_with_text(reason, false)
+}
+
+#[cfg(target_os = "macos")]
+fn capture_context_with_text(reason: &str, include_text_context: bool) -> AppContext {
+    macos::capture_context_with_text(reason, include_text_context)
+}
+
+/// macOS 返回的是前台窗口矩形（逻辑点），不是显示器工作区，见 context/macos.rs。
+#[cfg(target_os = "macos")]
+pub fn capture_foreground_monitor() -> Option<MonitorBounds> {
+    macos::capture_foreground_monitor()
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn capture_context(reason: &str) -> AppContext {
+    capture_context_with_text(reason, false)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn capture_context_with_text(reason: &str, _include_text_context: bool) -> AppContext {
     AppContext {
         reason: reason.to_string(),
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -649,7 +683,7 @@ pub fn capture_context(reason: &str) -> AppContext {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn capture_foreground_monitor() -> Option<MonitorBounds> {
     None
 }

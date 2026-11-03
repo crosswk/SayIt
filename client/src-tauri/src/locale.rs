@@ -34,6 +34,7 @@ impl Lang {
 ///
 /// 任何中文变体（简/繁/港澳台）都判为简体：他们现在看到的就是简体界面，
 /// 推到英文属于倒退。其余一律英文。
+#[cfg_attr(not(windows), allow(dead_code))]
 fn lang_from_primary_id(primary_id: u16) -> Lang {
     const LANG_CHINESE: u16 = 0x04;
     if primary_id == LANG_CHINESE {
@@ -55,9 +56,33 @@ pub fn system_ui_lang() -> Lang {
     lang_from_primary_id(langid & 0x03ff)
 }
 
-#[cfg(not(windows))]
+/// macOS：「系统设置 → 通用 → 语言与地区」里排第一的首选语言。
+///
+/// 不能读 `LANG`：从 Finder / Dock / 登录项启动的 App 一般没有这个环境变量，
+/// 中文系统会被误判成英文。
+#[cfg(target_os = "macos")]
 pub fn system_ui_lang() -> Lang {
-    // 非 Windows 目前只有 cargo test 会走到（应用本身是 Windows 独占）。
+    lang_from_language_tag(
+        crate::platform::macos::sysinfo::preferred_languages()
+            .first()
+            .map(String::as_str)
+            .unwrap_or(""),
+    )
+}
+
+/// `zh-Hans-CN` / `zh_CN` / `zh-Hant-TW` → 中文；其它 → 英文。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn lang_from_language_tag(tag: &str) -> Lang {
+    if tag.to_ascii_lowercase().starts_with("zh") {
+        Lang::ZhCn
+    } else {
+        Lang::En
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn system_ui_lang() -> Lang {
+    // 其它平台目前只有 cargo test 会走到。
     match std::env::var("LANG") {
         Ok(value) if value.to_ascii_lowercase().starts_with("zh") => Lang::ZhCn,
         _ => Lang::En,
@@ -79,6 +104,14 @@ mod tests {
         for id in [0x09, 0x11, 0x12, 0x07, 0x00] {
             assert_eq!(lang_from_primary_id(id), Lang::En, "primary_id={id:#x}");
         }
+    }
+
+    #[test]
+    fn mac_language_tags_map_to_ui_languages() {
+        assert_eq!(lang_from_language_tag("zh-Hans-CN"), Lang::ZhCn);
+        assert_eq!(lang_from_language_tag("zh-Hant-TW"), Lang::ZhCn);
+        assert_eq!(lang_from_language_tag("en-CN"), Lang::En);
+        assert_eq!(lang_from_language_tag(""), Lang::En);
     }
 
     #[test]

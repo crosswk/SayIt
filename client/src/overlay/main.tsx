@@ -5,6 +5,11 @@ import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import Overlay from './Overlay'
 import '../index.css'
+import { IS_MAC } from '../lib/platform'
+import { installMacWebviewBehavior } from '../lib/macWebview'
+
+// mac：悬浮窗上的提示文字不可选、右键不弹「重新载入」；兜底卡片里的识别结果仍可选中、右键拷贝
+if (IS_MAC) installMacWebviewBehavior()
 
 // Transparent background for overlay window
 const style = document.createElement('style')

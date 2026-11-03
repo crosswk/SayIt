@@ -179,7 +179,11 @@ fn inject_to_clipboard(text: &str) -> Result<(), String> {
             }
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        crate::inject::copy_to_clipboard(text)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = text;
         Err("not implemented on this platform".to_string())

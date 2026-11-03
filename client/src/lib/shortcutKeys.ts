@@ -9,6 +9,7 @@
  */
 
 import { t, type TranslationKey } from '@/i18n'
+import { IS_MAC } from '@/lib/platform'
 
 export interface SingleKeyDef {
   /** 存入设置、也等于 DOM KeyboardEvent.code */
@@ -20,7 +21,7 @@ export interface SingleKeyDef {
 }
 
 // i18n-allow-start: Windows VK 源标签；展示层由 getSingleKeyDisplay 翻译覆盖
-export const SINGLE_KEYS: SingleKeyDef[] = [
+const ALL_SINGLE_KEYS: SingleKeyDef[] = [
   // 修饰键（左右分开）
   { setting: 'AltLeft', vk: 0xa4, label: '左 Alt' },
   { setting: 'AltRight', vk: 0xa5, label: '右 Alt' },
@@ -55,6 +56,33 @@ export const SINGLE_KEYS: SingleKeyDef[] = [
     label: `F${index + 1}`,
   })),
 ]
+
+/**
+ * Mac 键盘上不存在、或在 mac 上不能当热键的单键。
+ *
+ * - ContextMenu / Pause / ScrollLock / BrowserBack / BrowserForward：Mac 键盘没有
+ *   （PC 键盘接到 Mac 上时 PrintScreen/ScrollLock/Pause 会被系统报成 F13–F15）。
+ * - F21–F24：macOS 没有对应的虚拟键码。
+ * - CapsLock：mac 上只报「切换」不报「松开」，中文用户还常用它切换输入法。
+ */
+const MAC_UNAVAILABLE_SINGLE_KEYS = new Set([
+  'ContextMenu', 'Pause', 'ScrollLock', 'BrowserBack', 'BrowserForward', 'CapsLock',
+  'F21', 'F22', 'F23', 'F24',
+])
+
+/**
+ * 只在 mac 上可以单独当热键的键（Rust 侧见 keyboard/mod.rs 的 PLATFORM_EXTRA_SINGLE_KEYS）：
+ * 单独的 ⌘（右 ⌘ 是 mac 免提的默认键；Windows 上单按 Win 会弹开始菜单，所以不允许）、Fn / 🌐。
+ */
+const MAC_EXTRA_SINGLE_KEYS: SingleKeyDef[] = [
+  { setting: 'MetaLeft', vk: 0x5b, label: 'Left ⌘' },
+  { setting: 'MetaRight', vk: 0x5c, label: 'Right ⌘' },
+  { setting: 'Fn', vk: 0xff, label: 'Fn' },
+]
+
+export const SINGLE_KEYS: SingleKeyDef[] = IS_MAC
+  ? [...ALL_SINGLE_KEYS.filter((key) => !MAC_UNAVAILABLE_SINGLE_KEYS.has(key.setting)), ...MAC_EXTRA_SINGLE_KEYS]
+  : ALL_SINGLE_KEYS
 // i18n-allow-end
 
 /** setting → 虚拟键码（旧单键与免提回退使用） */
@@ -189,31 +217,84 @@ const TRANSLATED_KEY_NAMES: Record<string, TranslationKey> = {
   BrowserForward: 'keyName.BrowserForward',
 }
 
+/** mac 上修饰键的显示名（⌥ Option、⌘ Command…），覆盖上面的 Windows 名称。 */
+const MAC_TRANSLATED_KEY_NAMES: Record<string, TranslationKey> = {
+  AltLeft: 'keyName.mac.AltLeft',
+  AltRight: 'keyName.mac.AltRight',
+  ControlLeft: 'keyName.mac.ControlLeft',
+  ControlRight: 'keyName.mac.ControlRight',
+  ShiftLeft: 'keyName.mac.ShiftLeft',
+  ShiftRight: 'keyName.mac.ShiftRight',
+  MetaLeft: 'keyName.mac.MetaLeft',
+  MetaRight: 'keyName.mac.MetaRight',
+  Fn: 'keyName.mac.Fn',
+}
+
+function translatedKeyName(code: string): TranslationKey | undefined {
+  return (IS_MAC ? MAC_TRANSLATED_KEY_NAMES[code] : undefined) ?? TRANSLATED_KEY_NAMES[code]
+}
+
 /** 单键显示名（未知原样返回）。 */
 export function getSingleKeyDisplay(value: string): string {
-  const key = TRANSLATED_KEY_NAMES[value]
+  const key = translatedKeyName(value)
   if (key) return t(key)
   return SINGLE_KEY_DISPLAY[value] || value
 }
 
-/** Tauri accelerator 的 Windows 显示名，用于逐个渲染键帽。 */
+/** Tauri accelerator 的显示名，用于逐个渲染键帽（mac 用 ⌘⌥⌃⇧ 符号）。 */
 export function displayAccelerator(accelerator: string): string[] {
-  const displayNames: Record<string, string> = {
-    CommandOrControl: 'Ctrl',
-    Control: 'Ctrl',
-    Ctrl: 'Ctrl',
-    Alt: 'Alt',
-    Shift: 'Shift',
-    Space: 'Space',
-    Return: 'Enter',
-  }
+  const displayNames: Record<string, string> = IS_MAC
+    ? {
+      CommandOrControl: '⌘',
+      Command: '⌘',
+      Cmd: '⌘',
+      Super: '⌘',
+      Meta: '⌘',
+      Control: '⌃',
+      Ctrl: '⌃',
+      Alt: '⌥',
+      Option: '⌥',
+      Shift: '⇧',
+      Space: 'Space',
+      Return: '↩',
+      // mac 按键位录制的主键名（见 macAcceleratorMainKey），显示成 mac 菜单里的写法
+      Enter: '↩',
+      Escape: '⎋',
+      Tab: '⇥',
+      Backspace: '⌫',
+      Delete: '⌦',
+      Up: '↑',
+      Down: '↓',
+      Left: '←',
+      Right: '→',
+      Comma: ',',
+      Period: '.',
+      Slash: '/',
+      Semicolon: ';',
+      Quote: "'",
+      BracketLeft: '[',
+      BracketRight: ']',
+      Backslash: '\\',
+      Backquote: '`',
+      Minus: '-',
+      Equal: '=',
+    }
+    : {
+      CommandOrControl: 'Ctrl',
+      Control: 'Ctrl',
+      Ctrl: 'Ctrl',
+      Alt: 'Alt',
+      Shift: 'Shift',
+      Space: 'Space',
+      Return: 'Enter',
+    }
   return accelerator.split('+')
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => displayNames[part] || part)
 }
 
-/** 单键或 accelerator 的统一 Windows 显示标签。 */
+/** 单键或 accelerator 的统一显示标签。 */
 export function displayShortcut(shortcut: string): string[] {
   return isSingleKeySetting(shortcut)
     ? [getSingleKeyDisplay(shortcut)]
@@ -227,12 +308,26 @@ export function displayShortcut(shortcut: string): string[] {
  */
 export function eventToAccelerator(event: KeyboardEvent): string | null {
   const parts: string[] = []
-  if (event.ctrlKey || event.metaKey) parts.push('CommandOrControl')
+  if (IS_MAC) {
+    // mac 上 ⌘ 与 ⌃ 是两个键：⌘ 存成 CommandOrControl（在 mac 上就是 ⌘），⌃ 单独存 Control
+    if (event.metaKey) parts.push('CommandOrControl')
+    if (event.ctrlKey) parts.push('Control')
+  } else if (event.ctrlKey || event.metaKey) {
+    parts.push('CommandOrControl')
+  }
   if (event.altKey) parts.push('Alt')
   if (event.shiftKey) parts.push('Shift')
 
   const key = event.key
   if (['Control', 'Alt', 'Shift', 'Meta'].includes(key)) return null
+
+  // mac：主键按键位取名（⌥ / ⇧ 会改掉 event.key，见 macAcceleratorMainKey）
+  if (IS_MAC) {
+    const mainKey = macAcceleratorMainKey(event.code)
+    if (!mainKey) return null
+    parts.push(mainKey)
+    return parts.length >= 2 ? parts.join('+') : null
+  }
 
   const keyMap: Record<string, string> = {
     ' ': 'Space',
@@ -305,7 +400,7 @@ export function canonicalizePTTShortcut(settingOrCodes: string | Iterable<string
 /** PTT 设置的按键标签，用于逐个渲染键帽。 */
 export function displayPTTShortcut(setting: string): string[] {
   return parsePTTShortcut(canonicalizePTTShortcut(setting)).map((code) => {
-    const key = TRANSLATED_KEY_NAMES[code]
+    const key = translatedKeyName(code)
     return key ? t(key) : PTT_CODE_DISPLAY[code] || code
   })
 }
@@ -330,7 +425,8 @@ export function pttShortcutHasModifier(setting: string): boolean {
  */
 export function getPTTShortcutWarning(setting: string): string | null {
   return parsePTTShortcut(canonicalizePTTShortcut(setting)).some(isPTTForbiddenCode)
-    ? t('shortcut.warning.shiftNoLongerSupported')
+    // mac 上只可能来自导入的 Windows 配置
+    ? t(IS_MAC ? 'shortcut.warning.shiftNoLongerSupportedMac' : 'shortcut.warning.shiftNoLongerSupported')
     : null
 }
 
@@ -360,6 +456,9 @@ function normalizedAcceleratorParts(accelerator: string): string[] {
  * 也必须在试注册前挡住系统安全界面、窗口切换等无法可靠覆盖的组合。
  */
 export function getAcceleratorShortcutValidationError(accelerator: string): string | null {
+  // mac：单键和鼠标键由我们自己的事件监听处理，不走系统快捷键注册，下面那些组合键规则管不到它们。
+  // 以前漏了这一句，单独一个右 ⌥、F5、鼠标侧键也被报「需要带上 ⌘ 或 ⌃」。
+  if (IS_MAC) return isSingleKeySetting(accelerator) ? null : getMacAcceleratorValidationError(accelerator)
   const parts = normalizedAcceleratorParts(accelerator)
   const has = (key: string) => parts.includes(key)
   const mainKeys = parts.filter((part) => !['Control', 'Meta', 'Alt', 'Shift'].includes(part))
@@ -378,6 +477,99 @@ export function getAcceleratorShortcutValidationError(accelerator: string): stri
     return t('shortcut.error.reservedCtrlEsc')
   }
   return null
+}
+
+/**
+ * macOS 的 accelerator 校验（免提组合、AI 开关、润色模式切换）。
+ *
+ * - 带 ⌘ 或 ⌃ 的组合注册成系统快捷键；修饰键只有 ⌥ / ⇧ 的组合（macOS 15 起系统快捷键不触发）
+ *   由 Rust 的 event tap 接管（keyboard/macos.rs 的 TAP_COMBOS），两类都能用。
+ * - ⌘Space（聚焦搜索）、⌃Space（切换输入法）、⌘Tab、⌘Q、⌘⇧3/4/5（截屏）被系统或所有程序占用。
+ * - 一个修饰键 + 会打出字符或有编辑含义的键，是各程序自己的快捷键或用来输入特殊字符（⌥E、⌥2）。
+ */
+function getMacAcceleratorValidationError(accelerator: string): string | null {
+  const aliases: Record<string, string> = {
+    CommandOrControl: 'Meta',
+    Command: 'Meta',
+    Cmd: 'Meta',
+    Super: 'Meta',
+    Ctrl: 'Control',
+    Option: 'Alt',
+    Return: 'Enter',
+  }
+  const parts = accelerator.split('+')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => aliases[part] || part)
+  const has = (key: string) => parts.includes(key)
+  const mainKey = parts.find((part) => !['Control', 'Meta', 'Alt', 'Shift'].includes(part))
+  if ((has('Meta') || has('Control')) && mainKey === 'Space' && !has('Alt') && !has('Shift')) {
+    return t('shortcut.error.reservedMac')
+  }
+  if (has('Meta') && (mainKey === 'Tab' || mainKey === 'Q')) {
+    return t('shortcut.error.reservedMac')
+  }
+  if (has('Meta') && has('Shift') && ['3', '4', '5'].includes(mainKey ?? '')) {
+    return t('shortcut.error.reservedMac')
+  }
+  // ⌥⌘Esc：强制退出
+  if (has('Meta') && has('Alt') && mainKey === 'Escape') {
+    return t('shortcut.error.reservedMac')
+  }
+  // 一个修饰键 + 字母 / 数字 / 符号 / 空格 / 方向键（⌘W 关窗口、⌘C 复制、⌃A 行首、⌥E 打重音符号、
+  // ⇧Space 打空格……）是各个程序和系统自己的快捷键，或用来输入字符。注册成全局快捷键后，
+  // 这些键在所有程序里都会失灵。
+  const modifierCount = ['Meta', 'Control', 'Alt', 'Shift'].filter(has).length
+  if (modifierCount === 1 && mainKey && isMacCharacterOrEditingKey(mainKey)) {
+    return t('shortcut.error.macSingleModifierReserved')
+  }
+  return null
+}
+
+/** 和一个修饰键组合时都有系统或文字编辑含义的非字符键（accelerator 里的写法） */
+const MAC_EDITING_KEYS = new Set([
+  'Up', 'Down', 'Left', 'Right', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+  'Return', 'Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown',
+])
+
+/** 会打出字符的键里，accelerator 不用单个字符而用名字写的那些（mac 按键位录制，见 macAcceleratorMainKey） */
+const MAC_NAMED_CHARACTER_KEYS = new Set([
+  'Space', 'Comma', 'Period', 'Slash', 'Semicolon', 'Quote', 'BracketLeft', 'BracketRight',
+  'Backslash', 'Backquote', 'Minus', 'Equal',
+])
+
+function isMacCharacterOrEditingKey(mainKey: string): boolean {
+  return mainKey.length === 1
+    || MAC_NAMED_CHARACTER_KEYS.has(mainKey)
+    || MAC_EDITING_KEYS.has(mainKey)
+    || /^Numpad/.test(mainKey)
+}
+
+/**
+ * mac 录组合键时的主键：按物理键位（event.code）取名，不看 event.key。
+ *
+ * ⌥ 会改变 event.key（⌥⇧D 得到「Î」，⌥1 得到「¡」），⇧ 会把数字变成符号（⇧1 → 「!」），
+ * 非美式键盘上字母的位置也不同；这些都会录成 Rust 端（global-hotkey）解析不了的组合。
+ * 系统快捷键和 event tap 本来就按键位匹配，所以这里也按键位取名，写法用 global-hotkey 认得的。
+ * 返回 null 表示这个键不能当组合键的主键。
+ */
+function macAcceleratorMainKey(code: string): string | null {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3)
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5)
+  if (/^F([1-9]|1[0-9]|20)$/.test(code)) return code
+  if (/^Numpad([0-9]|Add|Subtract|Multiply|Divide|Decimal)$/.test(code)) return code
+  const names: Record<string, string> = {
+    ArrowUp: 'Up',
+    ArrowDown: 'Down',
+    ArrowLeft: 'Left',
+    ArrowRight: 'Right',
+  }
+  if (names[code]) return names[code]
+  return MAC_NAMED_CHARACTER_KEYS.has(code) || [
+    'Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown',
+  ].includes(code)
+    ? code
+    : null
 }
 
 export interface PTTValidationOptions {
@@ -410,16 +602,17 @@ export function getPTTShortcutValidationError(
 
   // 排在单键/组合的分支之前：Shift 无论单独用还是当组合成员都不行
   if (!options.allowLegacyReservedKeys && codes.some(isPTTForbiddenCode)) {
-    return t('shortcut.error.shiftReserved')
+    return t(IS_MAC ? 'shortcut.error.shiftReservedMac' : 'shortcut.error.shiftReserved')
   }
 
   if (codes.length === 1) {
     const code = codes[0]
-    if (code === 'MetaLeft' || code === 'MetaRight') {
+    // mac 上单独的 ⌘ 没有系统动作，可以当按住说话键（Windows 上单按 Win 会弹开始菜单）
+    if (!IS_MAC && (code === 'MetaLeft' || code === 'MetaRight')) {
       return t('shortcut.error.metaAlone')
     }
     if (!isSingleKeySetting(code)) {
-      return t('shortcut.error.plainKeyAlone')
+      return t(IS_MAC ? 'shortcut.error.plainKeyAloneMac' : 'shortcut.error.plainKeyAlone')
     }
     return null
   }
@@ -436,7 +629,7 @@ export function getPTTShortcutValidationError(
   }
   if (mainKeys.length > 1) return t('shortcut.error.tooManyMainKeys')
   if (mainKeys.length === 1 && modifiers.length === 0) {
-    return t('shortcut.error.needModifier')
+    return t(IS_MAC ? 'shortcut.error.needModifierMac' : 'shortcut.error.needModifier')
   }
   if (mainKeys.length === 0 && modifiers.length < 2) {
     return t('shortcut.error.needTwoModifiers')
@@ -444,6 +637,16 @@ export function getPTTShortcutValidationError(
 
   const hasFamily = (prefix: string) => modifiers.some((code) => code.startsWith(prefix))
   const mainKey = mainKeys[0]
+  if (IS_MAC) {
+    // 按住说话走 event tap，不受 Carbon 快捷键的 ⌥ 限制；只挡系统占用的组合
+    if ((hasFamily('Meta') || hasFamily('Control')) && mainKey === 'Space') {
+      return t('shortcut.error.reservedMac')
+    }
+    if (hasFamily('Meta') && (mainKey === 'Tab' || mainKey === 'KeyQ')) {
+      return t('shortcut.error.reservedMac')
+    }
+    return null
+  }
   if (hasFamily('Control') && hasFamily('Alt') && mainKey === 'Delete') {
     return t('shortcut.error.reservedCtrlAltDel')
   }

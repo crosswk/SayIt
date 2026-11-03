@@ -1,6 +1,7 @@
 import type { HistoryFailReasonCode, PromptPreset } from '@/services/store'
 import type { AppPromptRule } from '@/services/personalization/types'
 import { t, type TranslationKey } from '.'
+import { IS_MAC } from '@/lib/platform'
 
 const BUILTIN_PRESET_NAME_KEYS: Record<string, TranslationKey> = {
   intent: 'builtinPreset.intent',
@@ -15,7 +16,8 @@ const BUILTIN_APP_NAME_KEYS: Record<string, TranslationKey> = {
   kiro: 'builtinApp.kiro',
   vscode: 'builtinApp.vscode',
   cursor: 'builtinApp.cursor',
-  notepad: 'builtinApp.notepad',
+  // mac 上这条规则对应系统自带的「文本编辑」（见 personalization/defaults.ts 的 MAC_RULE_OVERRIDES）
+  notepad: IS_MAC ? 'builtinApp.notepadMac' : 'builtinApp.notepad',
   codex: 'builtinApp.codex',
   weixin: 'builtinApp.weixin',
   qq: 'builtinApp.qq',

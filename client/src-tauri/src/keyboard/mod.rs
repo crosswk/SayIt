@@ -3,6 +3,13 @@
 //! Uses Win32 SetWindowsHookExW(WH_KEYBOARD_LL) to capture key events globally.
 //! Runs the message loop on a dedicated thread.
 
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub(crate) use macos::{tap_active, SAYIT_EVENT_MARKER};
+#[cfg(target_os = "macos")]
+pub(crate) use macos::{set_tap_combos, tap_combo_for_accelerator, TapCombo, TapComboAction};
+
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -65,6 +72,7 @@ pub fn set_shortcut_capture(on: bool) {
 }
 
 /// 键盘钩子线程的 id，用来从别的线程让它装上鼠标钩子。0 = 钩子线程没在跑。
+#[cfg_attr(not(windows), allow(dead_code))]
 static HOOK_THREAD_ID: AtomicU32 = AtomicU32::new(0);
 /// 发给钩子线程的私有消息（WM_APP + 0x51）：「现在需要鼠标钩子」。
 #[cfg(windows)]
@@ -82,6 +90,7 @@ static HOOK_REFRESH_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 会误报：没绑鼠标键时不装鼠标钩子，只动鼠标也算输入。误报的代价只是重装一次钩子
 /// （几微秒，在钩子线程里先装新的再卸旧的，中间不会处理任何按键，所以不会漏也不会重复），
 /// 所以宁可多装，每分钟最多一次。
+#[cfg_attr(not(windows), allow(dead_code))]
 fn hook_looks_removed(callback_age_ms: i64, input_age_ms: i64) -> bool {
     callback_age_ms >= 0 && input_age_ms >= 0 && callback_age_ms - input_age_ms > 5_000
 }
@@ -106,6 +115,7 @@ fn last_input_age_ms() -> Option<i64> {
 /// 跨进程回调，高回报率的游戏鼠标每秒上千次。绝大多数用户根本没绑鼠标键。
 /// 录制时装上的钩子留到下次重配（保存绑定后就会重配）才按绑定重新决定，
 /// 这样捕获到侧键后配对的那个抬起照样能被吞掉（pitfalls #6）。
+#[cfg_attr(not(windows), allow(dead_code))]
 fn needs_mouse_hook(ptt: &[u32], hf: &[u32], ai_toggle: &[u32], capturing: bool) -> bool {
     capturing || ptt.iter().chain(hf).chain(ai_toggle).any(|vk| is_mouse_vk(*vk))
 }
@@ -244,7 +254,13 @@ fn current_foreground_hwnd() -> isize {
     unsafe { GetForegroundWindow().0 as isize }
 }
 
-#[cfg(not(windows))]
+/// macOS：用前台应用的 pid 代替窗口句柄（卡片快捷键只需判断「用户切没切走」）。
+#[cfg(target_os = "macos")]
+fn current_foreground_hwnd() -> isize {
+    crate::platform::macos::ax::focused_application_pid().unwrap_or(0) as isize
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn current_foreground_hwnd() -> isize {
     0
 }
@@ -266,7 +282,7 @@ fn active_card_hotkeys() -> (u32, u64) {
 }
 
 /// 前台窗口是否仍是卡片弹出时那个。记录值为 0（取不到）时一律放过校验。
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn card_hotkey_foreground_matches() -> bool {
     let expected = CARD_HOTKEY_FOREGROUND.load(Ordering::SeqCst);
     if expected == 0 {
@@ -380,6 +396,26 @@ const SINGLE_KEY_TABLE: &[(&str, u32)] = &[
     ("F21", 0x84), ("F22", 0x85), ("F23", 0x86), ("F24", 0x87),
 ];
 
+/// 只在 macOS 上能单独当热键的键，Windows 上不放进上面的公共表（Windows 行为保持不变）：
+/// - 单独的 ⌘（Windows 上是 Win 键，单按会弹开始菜单，所以 Windows 不允许）；
+///   mac 上右 ⌘ 单按没有系统动作，是免提的默认键。
+/// - Fn / 🌐：Windows 没有对应的虚拟键；mac 的 event tap 把它翻译成保留值 0xFF
+///   （见 platform::macos::keycodes::VK_FN）。
+/// ⚠️ 与前端 lib/shortcutKeys.ts 里 IS_MAC 时追加的单键保持一致。
+#[cfg(target_os = "macos")]
+const PLATFORM_EXTRA_SINGLE_KEYS: &[(&str, u32)] = &[("MetaLeft", 0x5B), ("MetaRight", 0x5C), ("Fn", 0xFF)];
+#[cfg(not(target_os = "macos"))]
+const PLATFORM_EXTRA_SINGLE_KEYS: &[(&str, u32)] = &[];
+
+/// 单键热键表查找（公共表 + 本平台额外的单键）。
+fn single_key_vk(code: &str) -> Option<u32> {
+    SINGLE_KEY_TABLE
+        .iter()
+        .chain(PLATFORM_EXTRA_SINGLE_KEYS)
+        .find(|(setting, _)| *setting == code)
+        .map(|(_, vk)| *vk)
+}
+
 fn ptt_modifier_family(code: &str) -> Option<&'static str> {
     if code.starts_with("Alt") {
         Some("Alt")
@@ -395,8 +431,8 @@ fn ptt_modifier_family(code: &str) -> Option<&'static str> {
 }
 
 fn vk_for_ptt_code(code: &str) -> Option<u32> {
-    if let Some((_, vk)) = SINGLE_KEY_TABLE.iter().find(|(setting, _)| *setting == code) {
-        return Some(*vk);
+    if let Some(vk) = single_key_vk(code) {
+        return Some(vk);
     }
 
     if let Some(letter) = code.strip_prefix("Key") {
@@ -465,7 +501,11 @@ impl PttKeyConfig {
 ///
 /// 值在 crate::defaults，那里有与前端 defaults.ts 的对账测试。
 const DEFAULT_PTT_SETTING: &str = crate::defaults::SHORTCUT_PTT;
+/// 与 DEFAULT_PTT_SETTING 对应的键：Windows 右 Ctrl，macOS 右 ⌥（MacBook 没有右 Ctrl）。
+#[cfg(not(target_os = "macos"))]
 const DEFAULT_PTT_VK: u32 = 0xA3;
+#[cfg(target_os = "macos")]
+const DEFAULT_PTT_VK: u32 = 0xA5;
 
 /// 解析向后兼容的 PTT 物理键格式。旧单键仍是单成员；组合成员用 `+` 分隔。
 ///
@@ -510,7 +550,7 @@ fn ptt_key_config(setting: &str) -> PttKeyConfig {
         .any(|code| matches!(*code, "XButton1" | "XButton2" | "MButton"));
     let main_key_count = codes.len() - modifier_mask.count_ones() as usize;
     let valid_shape = if codes.len() == 1 {
-        SINGLE_KEY_TABLE.iter().any(|(single, _)| single == &codes[0])
+        single_key_vk(codes[0]).is_some()
     } else {
         !mouse_member
             && main_key_count <= 1
@@ -535,10 +575,11 @@ fn vk_codes_for_setting(setting: &str) -> Vec<u32> {
 
 /// Check if a shortcut setting is a single key (handled by hook) vs combo (handled by global_shortcut).
 pub fn is_single_key_setting(setting: &str) -> bool {
-    SINGLE_KEY_TABLE.iter().any(|(single, _)| *single == setting)
+    single_key_vk(setting).is_some()
 }
 
 /// 该设置是否为鼠标侧键（由低级鼠标钩子处理，而非键盘钩子）。
+#[cfg_attr(not(windows), allow(dead_code))]
 fn is_mouse_button_setting(setting: &str) -> bool {
     matches!(setting, "XButton1" | "XButton2" | "MButton")
 }
@@ -566,6 +607,7 @@ fn is_mouse_vk(vk: u32) -> bool {
 ///     键盘管理器、外设驱动宏把别的键映射过来。后者走 SendInput，带 injected 标志；
 ///     不开例外的话这类用户会遇到「绑得上、按下去没反应、日志里也没有任何记录」，
 ///     排查起来毫无线索。误判的代价只是某个程序模拟 F13 时多弹一次悬浮窗。
+#[cfg_attr(not(windows), allow(dead_code))]
 fn is_injection_exempt_vk(vk: u32) -> bool {
     matches!(vk, 0xA6 | 0xA7) || (0x7C..=0x87).contains(&vk)
 }
@@ -682,7 +724,7 @@ struct HookSharedState {
 }
 
 /// Message sent from the hook callback (non-blocking) to the dispatcher thread.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[allow(dead_code)]
 enum HookAction {
     PttDown { vk: u32, gen: u64 },
@@ -696,6 +738,9 @@ enum HookAction {
     Shutdown,
     /// 快捷键录制期间捕获到的鼠标侧键（vk=0x05/0x06），用于让设置页绑定侧键。
     MouseCaptured { vk: u32 },
+    /// 切换润色模式。只有 mac 的 event tap 会发：系统快捷键接不住的、只带 ⌥ / ⇧ 的组合键
+    /// （见 keyboard/macos.rs 的 TAP_COMBOS）。Windows 上这类组合仍由 global_shortcut 处理。
+    PresetSwitch { preset_id: String },
 }
 
 const PTT_RELEASING_BIT: u64 = 1 << 63;
@@ -833,6 +878,11 @@ fn ptt_modifier_flags(setting: &str) -> (bool, bool, bool, bool) {
     (alt, ctrl, shift, meta)
 }
 
+#[cfg(target_os = "macos")]
+unsafe fn is_ptt_member_physically_down(vk: u32) -> bool {
+    macos::is_physically_down(vk)
+}
+
 #[cfg(windows)]
 unsafe fn is_ptt_member_physically_down(vk: u32) -> bool {
     use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
@@ -861,7 +911,18 @@ pub fn ptt_physical_key_states(codes: &[String]) -> Vec<bool> {
             .collect();
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        return codes
+            .iter()
+            .map(|code| {
+                vk_for_ptt_code(code)
+                    .is_some_and(|vk| unsafe { is_ptt_member_physically_down(vk) })
+            })
+            .collect();
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         vec![false; codes.len()]
     }
@@ -869,7 +930,7 @@ pub fn ptt_physical_key_states(codes: &[String]) -> Vec<bool> {
 
 /// 新成员 down 到来前，先清掉其它成员中物理上已经松开的残位。
 /// 这既覆盖录音结束后的漏 up，也避免在 1.5 秒后台看门狗窗口内误拼出完整组合。
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 unsafe fn reconcile_stale_ptt_members_before_down(
     state: &HookSharedState,
     current_index: usize,
@@ -889,7 +950,7 @@ unsafe fn reconcile_stale_ptt_members_before_down(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn queue_ptt_release(
     sender: &std::sync::mpsc::Sender<HookAction>,
     active_generation: &AtomicU64,
@@ -919,7 +980,7 @@ fn queue_ptt_release(
 /// 活动代次可能因任一成员正常 up 而结束，但其它成员的 up 仍可能丢失；如果只让录音
 /// watchdog 工作到代次结束，残留位会把下一次单键误拼成完整组合。此线程存活期等于 hook，
 /// 会持续清理每个已物理松开且 repeat 静默足够久的成员，并在仍有活动代次时补发一次 up。
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn spawn_ptt_member_watchdog(
     state: Arc<HookSharedState>,
     action_tx: std::sync::mpsc::Sender<HookAction>,
@@ -1026,7 +1087,7 @@ fn emit_ptt_release(state: &HookSharedState, vk: u32, gen: u64, reason: &'static
     let _ = state.app_handle.emit("ptt-up", &event);
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn spawn_ptt_release_watchdog(
     state: Arc<HookSharedState>,
     action_tx: std::sync::mpsc::Sender<HookAction>,
@@ -1196,10 +1257,10 @@ fn spawn_ptt_release_watchdog(
 /// RAII 计时器：测量 `low_level_keyboard_proc` 单次调用耗时，drop 时更新
 /// `MAX_CALLBACK_DURATION_US`。用 Drop 而非在每个 return 点手写更新，这样
 /// 无论函数从哪条路径返回都会被覆盖到，不会漏记。
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 struct CallbackTimer(std::time::Instant);
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 impl Drop for CallbackTimer {
     fn drop(&mut self) {
         let elapsed_us = self.0.elapsed().as_micros() as u64;
@@ -1254,12 +1315,28 @@ pub fn spawn_health_watchdog() {
     let _ = thread::Builder::new()
         .name("ptt-watchdog".to_string())
         .spawn(|| {
+            // last_refresh_ms 只有 Windows 的「钩子被摘」判据用得到
+            #[cfg_attr(not(windows), allow(unused_mut, unused_variables))]
             let mut last_refresh_ms: i64 = 0;
             let mut refresh_logged_at_ms: i64 = 0;
             loop {
                 // 15 秒查一次：钩子被摘后最多一刻钟内（有输入的前提下）就能装回来。
                 // 采样本身只是几次原子读和一次 GetLastInputInfo。
                 thread::sleep(std::time::Duration::from_secs(15));
+
+                // macOS 不会静默摘钩子，但会在回调超时 / 用户输入保护时把 tap 停用
+                // （回调里收到 kCGEventTapDisabledBy* 时会立刻重开，这里是兜底）。
+                #[cfg(target_os = "macos")]
+                if HOOK_RUNNING.load(Ordering::SeqCst) && macos::reenable_tap_if_disabled() {
+                    HOOK_REFRESH_COUNT.fetch_add(1, Ordering::SeqCst);
+                    if now_ms() - refresh_logged_at_ms >= 30 * 60_000 {
+                        refresh_logged_at_ms = now_ms();
+                        crate::commands::system::write_log_line(&format!(
+                            "[ptt-watchdog] event tap was disabled by the system; re-enabled, total refreshes={}",
+                            HOOK_REFRESH_COUNT.load(Ordering::SeqCst),
+                        ));
+                    }
+                }
 
                 #[cfg(windows)]
                 if HOOK_RUNNING.load(Ordering::SeqCst) && now_ms() - last_refresh_ms >= 60_000 {
@@ -1304,6 +1381,134 @@ pub fn spawn_health_watchdog() {
                 }
             }
         });
+}
+
+/// Dispatcher 线程：日志与 emit（可能阻塞）都在这里做，钩子回调只往队列里投递。
+/// Windows 的低级钩子与 macOS 的 event tap 共用这一份，事件名和载荷只有一处定义。
+#[cfg(any(windows, target_os = "macos"))]
+fn spawn_dispatcher(
+    dispatch_state: Arc<HookSharedState>,
+    action_rx: std::sync::mpsc::Receiver<HookAction>,
+    watchdog_action_tx: std::sync::mpsc::Sender<HookAction>,
+) -> thread::JoinHandle<()> {
+        thread::Builder::new()
+            .name("ptt-dispatcher".to_string())
+            .spawn(move || {
+            // Guard 存活期 = 本线程存活期；线程正常退出或 panic 展开都会触发 Drop，
+            // 从而让看门狗快照立刻看到 dispatcher_alive=false。
+            let _alive_guard = DispatcherAliveGuard::new();
+            crate::commands::system::write_log_line("[ptt-dispatcher] thread started");
+            while let Ok(action) = action_rx.recv() {
+                match action {
+                    HookAction::Shutdown => break,
+                    HookAction::Diag { vk, msg_name, flags, scan_code } => {
+                        crate::commands::system::write_log_line(
+                            &format!("[RUST] [hook-diag] vk={} msg={} flags=0x{:X} scanCode=0x{:X}", vk, msg_name, flags, scan_code)
+                        );
+                    }
+                    HookAction::PttDown { vk, gen } => {
+                        let setting = &dispatch_state.ptt_setting;
+                        crate::commands::system::write_log_line(
+                            &format!("[RUST] [ptt] keydown vk={} setting={} gen={}", vk, setting, gen)
+                        );
+                        let (alt_key, ctrl_key, shift_key, meta_key) =
+                            ptt_modifier_flags(setting);
+                        let event = PTTEvent {
+                            source: "rust_hook".to_string(),
+                            reason: "keydown".to_string(),
+                            vk,
+                            ptt_setting: setting.clone(),
+                            timestamp: chrono::Utc::now().timestamp_millis(),
+                            alt_key,
+                            ctrl_key,
+                            shift_key,
+                            meta_key,
+                        };
+                        let _ = dispatch_state.app_handle.emit("ptt-down", &event);
+                        spawn_ptt_release_watchdog(
+                            dispatch_state.clone(),
+                            watchdog_action_tx.clone(),
+                            vk,
+                            gen,
+                        );
+                    }
+                    HookAction::PttUp { vk, gen, reason } => {
+                        emit_ptt_release(&dispatch_state, vk, gen, reason);
+                    }
+                    HookAction::HfToggle { vk } => {
+                        crate::commands::system::write_log_line(
+                            &format!("[RUST] [hf] toggle vk={} setting={}", vk, dispatch_state.hf_setting)
+                        );
+                        let _ = dispatch_state.app_handle.emit("toggle-hands-free", serde_json::json!({
+                            "source": "rust_hook",
+                            "vk": vk,
+                        }));
+                    }
+                    HookAction::AiToggle { vk } => {
+                        crate::commands::system::write_log_line(
+                            &format!("[RUST] [ai-toggle] vk={} setting={}", vk, dispatch_state.ai_toggle_setting)
+                        );
+                        let _ = dispatch_state.app_handle.emit("toggle-ai-cleanup", serde_json::json!({
+                            "source": "rust_hook",
+                            "vk": vk,
+                        }));
+                    }
+                    HookAction::Escape { mode, token } => {
+                        let mode_name = escape_action_mode_name(mode);
+                        crate::commands::system::write_log_line(
+                            &format!("[RUST] [escape] action mode={mode_name} token={token}")
+                        );
+                        let _ = dispatch_state.app_handle.emit("escape-action", serde_json::json!({
+                            "mode": mode_name,
+                            "token": token,
+                        }));
+                    }
+                    HookAction::CardHotkey { action, token } => {
+                        let action_name = card_hotkey_action_name(action);
+                        crate::commands::system::write_log_line(
+                            &format!("[RUST] [card-hotkey] action={action_name} token={token}")
+                        );
+                        let _ = dispatch_state.app_handle.emit("card-hotkey", serde_json::json!({
+                            "action": action_name,
+                            "token": token,
+                        }));
+                    }
+                    HookAction::MouseCaptured { vk } => {
+                        let setting = match vk {
+                            0x04 => "MButton",
+                            0x05 => "XButton1",
+                            0x06 => "XButton2",
+                            0xA6 => "BrowserBack",
+                            0xA7 => "BrowserForward",
+                            // mac 的 Fn / 🌐 键（内部 ID 0xFF，只有 mac 会产生）
+                            0xFF => "Fn",
+                            _ => "",
+                        };
+                        crate::commands::system::write_log_line(
+                            &format!("[RUST] [shortcut-capture] mouse side button vk={} setting={}", vk, setting)
+                        );
+                        let _ = dispatch_state.app_handle.emit("mouse-shortcut-captured", serde_json::json!({
+                            "setting": setting,
+                            "vk": vk,
+                        }));
+                    }
+                    HookAction::PresetSwitch { preset_id } => {
+                        crate::commands::system::write_log_line(
+                            &format!("[RUST] [preset] switch preset={} (event tap)", preset_id)
+                        );
+                        // 载荷与 commands/shortcuts.rs 里系统快捷键发的一致
+                        let _ = dispatch_state.app_handle.emit("switch-preset", serde_json::json!({
+                            "presetId": preset_id,
+                        }));
+                    }
+                }
+            }
+            log::info!("[ptt] dispatcher thread exited");
+            crate::commands::system::write_log_line(
+                "[ptt-dispatcher] thread exited (shutdown or all senders dropped)"
+            );
+            // _alive_guard drops here, flips DISPATCHER_ALIVE back to false.
+        }).expect("failed to spawn ptt-dispatcher thread")
 }
 
 // Thread-local storage for the hook callback
@@ -1448,10 +1653,21 @@ impl KeyboardHookManager {
             }
         }
 
+        // macOS：我们从不吞修饰键，系统的键盘状态不会被留住，不需要补发 keyup。
+        #[cfg(target_os = "macos")]
+        if let Some(state) = self.shared_state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref() {
+            clear_ptt_members(state);
+        }
+
         if let Some(thread_id) = self.hook_thread_id.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() {
             #[cfg(windows)]
             unsafe {
                 let _ = PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let _ = thread_id;
+                macos::request_tap_thread_stop();
             }
         }
 
@@ -1465,7 +1681,7 @@ impl KeyboardHookManager {
             }
         }
 
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         if let Some(state) = self.shared_state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref() {
             // 安装失败/panic 时 hook 线程可能没机会排 up；至少不要把 native 状态留住。
             clear_ptt_members(state);
@@ -1513,115 +1729,7 @@ impl KeyboardHookManager {
         let watchdog_action_tx = action_tx.clone();
         let member_watchdog = spawn_ptt_member_watchdog(state.clone(), action_tx.clone());
 
-        // Spawn dispatcher thread — handles logging and emit (potentially blocking ops)
-        let dispatch_state = state.clone();
-        let dispatcher_thread = thread::Builder::new()
-            .name("ptt-dispatcher".to_string())
-            .spawn(move || {
-            // Guard 存活期 = 本线程存活期；线程正常退出或 panic 展开都会触发 Drop，
-            // 从而让看门狗快照立刻看到 dispatcher_alive=false。
-            let _alive_guard = DispatcherAliveGuard::new();
-            crate::commands::system::write_log_line("[ptt-dispatcher] thread started");
-            while let Ok(action) = action_rx.recv() {
-                match action {
-                    HookAction::Shutdown => break,
-                    HookAction::Diag { vk, msg_name, flags, scan_code } => {
-                        crate::commands::system::write_log_line(
-                            &format!("[RUST] [hook-diag] vk={} msg={} flags=0x{:X} scanCode=0x{:X}", vk, msg_name, flags, scan_code)
-                        );
-                    }
-                    HookAction::PttDown { vk, gen } => {
-                        let setting = &dispatch_state.ptt_setting;
-                        crate::commands::system::write_log_line(
-                            &format!("[RUST] [ptt] keydown vk={} setting={} gen={}", vk, setting, gen)
-                        );
-                        let (alt_key, ctrl_key, shift_key, meta_key) =
-                            ptt_modifier_flags(setting);
-                        let event = PTTEvent {
-                            source: "rust_hook".to_string(),
-                            reason: "keydown".to_string(),
-                            vk,
-                            ptt_setting: setting.clone(),
-                            timestamp: chrono::Utc::now().timestamp_millis(),
-                            alt_key,
-                            ctrl_key,
-                            shift_key,
-                            meta_key,
-                        };
-                        let _ = dispatch_state.app_handle.emit("ptt-down", &event);
-                        spawn_ptt_release_watchdog(
-                            dispatch_state.clone(),
-                            watchdog_action_tx.clone(),
-                            vk,
-                            gen,
-                        );
-                    }
-                    HookAction::PttUp { vk, gen, reason } => {
-                        emit_ptt_release(&dispatch_state, vk, gen, reason);
-                    }
-                    HookAction::HfToggle { vk } => {
-                        crate::commands::system::write_log_line(
-                            &format!("[RUST] [hf] toggle vk={} setting={}", vk, dispatch_state.hf_setting)
-                        );
-                        let _ = dispatch_state.app_handle.emit("toggle-hands-free", serde_json::json!({
-                            "source": "rust_hook",
-                            "vk": vk,
-                        }));
-                    }
-                    HookAction::AiToggle { vk } => {
-                        crate::commands::system::write_log_line(
-                            &format!("[RUST] [ai-toggle] vk={} setting={}", vk, dispatch_state.ai_toggle_setting)
-                        );
-                        let _ = dispatch_state.app_handle.emit("toggle-ai-cleanup", serde_json::json!({
-                            "source": "rust_hook",
-                            "vk": vk,
-                        }));
-                    }
-                    HookAction::Escape { mode, token } => {
-                        let mode_name = escape_action_mode_name(mode);
-                        crate::commands::system::write_log_line(
-                            &format!("[RUST] [escape] action mode={mode_name} token={token}")
-                        );
-                        let _ = dispatch_state.app_handle.emit("escape-action", serde_json::json!({
-                            "mode": mode_name,
-                            "token": token,
-                        }));
-                    }
-                    HookAction::CardHotkey { action, token } => {
-                        let action_name = card_hotkey_action_name(action);
-                        crate::commands::system::write_log_line(
-                            &format!("[RUST] [card-hotkey] action={action_name} token={token}")
-                        );
-                        let _ = dispatch_state.app_handle.emit("card-hotkey", serde_json::json!({
-                            "action": action_name,
-                            "token": token,
-                        }));
-                    }
-                    HookAction::MouseCaptured { vk } => {
-                        let setting = match vk {
-                            0x04 => "MButton",
-                            0x05 => "XButton1",
-                            0x06 => "XButton2",
-                            0xA6 => "BrowserBack",
-                            0xA7 => "BrowserForward",
-                            _ => "",
-                        };
-                        crate::commands::system::write_log_line(
-                            &format!("[RUST] [shortcut-capture] mouse side button vk={} setting={}", vk, setting)
-                        );
-                        let _ = dispatch_state.app_handle.emit("mouse-shortcut-captured", serde_json::json!({
-                            "setting": setting,
-                            "vk": vk,
-                        }));
-                    }
-                }
-            }
-            log::info!("[ptt] dispatcher thread exited");
-            crate::commands::system::write_log_line(
-                "[ptt-dispatcher] thread exited (shutdown or all senders dropped)"
-            );
-            // _alive_guard drops here, flips DISPATCHER_ALIVE back to false.
-        }).expect("failed to spawn ptt-dispatcher thread");
+        let dispatcher_thread = spawn_dispatcher(state.clone(), action_rx, watchdog_action_tx);
 
         // Set thread-local state for the callback
         HOOK_STATE.with(|s| {
@@ -1782,7 +1890,13 @@ impl KeyboardHookManager {
         }
     }
 
-    #[cfg(not(windows))]
+    /// macOS：CGEventTap，见 keyboard/macos.rs。
+    #[cfg(target_os = "macos")]
+    fn hook_thread(state: Arc<HookSharedState>, tx: std::sync::mpsc::Sender<u32>) {
+        macos::hook_thread(state, tx);
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
     fn hook_thread(_state: Arc<HookSharedState>, tx: std::sync::mpsc::Sender<u32>) {
         let _ = tx.send(0);
         // No-op on non-Windows
@@ -2392,7 +2506,7 @@ mod tests {
         CARD_HOTKEY_COPY, CARD_HOTKEY_DEADLINE_MS, CARD_HOTKEY_FOREGROUND, DEFAULT_PTT_SETTING,
         DEFAULT_PTT_VK, SINGLE_KEY_TABLE, needs_mouse_hook, hook_looks_removed,
     };
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     use super::queue_ptt_release;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -2603,7 +2717,7 @@ mod tests {
         assert!(complete_ptt_release(&active_generation, new_gen));
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn disconnected_dispatcher_releases_native_ptt_state() {
         let active_generation = AtomicU64::new(0);

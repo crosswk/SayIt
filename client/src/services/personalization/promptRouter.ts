@@ -39,9 +39,15 @@ export function matchesAppPromptRule(rule: AppPromptRule, context: ActiveAppCont
   if (!context) return false
 
   const processName = normalizeProcessName(context)
+  // macOS 的可执行文件名不可靠（VS Code 叫 Electron、很多程序同名），规则里的
+  // 「进程名」同时拿来比 Bundle ID，内置规则因此可以把 Windows 进程名和 mac Bundle ID 写在一起。
+  const bundleId = normalizeText(context.bundleId)
 
-  if (rule.matcher.processNames.length > 0 && processName) {
-    return rule.matcher.processNames.some((candidate) => processName === normalizeText(candidate))
+  if (rule.matcher.processNames.length > 0 && (processName || bundleId)) {
+    return rule.matcher.processNames.some((candidate) => {
+      const normalized = normalizeText(candidate)
+      return normalized === processName || (bundleId !== '' && normalized === bundleId)
+    })
   }
 
   const windowTitle = normalizeText(context.windowTitle)

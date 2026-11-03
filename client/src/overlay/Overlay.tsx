@@ -5,6 +5,7 @@ import { isLocale, setLocale } from '@/i18n'
 import { useT } from '@/i18n/useT'
 import { addRuntimeEvent } from '../services/debugLog'
 import { formatRecordingTimer } from '../services/recorder/types'
+import { IS_MAC } from '@/lib/platform'
 
 /**
  * `blank` 什么都不渲染，只在**隐藏窗口之前**用一下。
@@ -525,7 +526,8 @@ export default function Overlay() {
                   ? t('overlay.copyFailedHint')
                   : fallbackReason === 'insertion_timeout'
                     ? t('overlay.insertionTimeoutHint')
-                    : t('overlay.fallbackHint')}
+                    // mac 上卡片的复制键是 ⌘C（Rust 侧 keyboard/macos.rs 的 only_command_is_down）
+                    : t(IS_MAC ? 'overlay.fallbackHintMac' : 'overlay.fallbackHint')}
               </span>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -533,8 +535,8 @@ export default function Overlay() {
                 type="button"
                 onClick={() => { void handleCopyFallback('button') }}
                 // 悬浮窗的 bundle 里没有 Tooltip 组件，用原生 title 带出快捷键。
-                title={copied ? t('overlay.copied') : t('overlay.copyTextWithHotkey')}
-                aria-keyshortcuts="Control+C"
+                title={copied ? t('overlay.copied') : t(IS_MAC ? 'overlay.copyTextWithHotkeyMac' : 'overlay.copyTextWithHotkey')}
+                aria-keyshortcuts={IS_MAC ? 'Meta+C' : 'Control+C'}
                 className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${copied
                   ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
                   : 'border-white/10 bg-white/10 text-white/90 hover:bg-white/20'

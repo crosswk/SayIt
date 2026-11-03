@@ -170,6 +170,36 @@ export function getActiveAppContext() {
   return invoke<Record<string, unknown> | null>('get_active_app_context')
 }
 
+/** 系统权限状态（macOS：辅助功能 / 麦克风 / 安全输入；Windows 恒为已授权）。 */
+export interface PlatformPermissions {
+  platform: string
+  accessibility: boolean
+  hotkeyActive: boolean
+  microphone: 'not_determined' | 'restricted' | 'denied' | 'authorized' | 'unknown'
+  secureInput: boolean
+  translocated: boolean
+  bundlePath: string
+}
+
+export function getPlatformPermissions() {
+  return invoke<PlatformPermissions>('get_platform_permissions')
+}
+
+/** 请求「辅助功能」授权（没授权时系统会弹出引导框）。返回当前是否已授权。 */
+export function requestAccessibilityPermission() {
+  return invoke<boolean>('request_accessibility_permission')
+}
+
+/** 打开系统设置的隐私面板：accessibility / microphone / input_monitoring。 */
+export function openPrivacySettings(pane: 'accessibility' | 'microphone' | 'input_monitoring') {
+  return invoke<void>('open_privacy_settings', { pane })
+}
+
+/** 界面语言切换后重建 mac 的原生菜单（菜单栏图标菜单、顶部应用菜单）。Windows 上是空操作。 */
+export function refreshNativeMenus() {
+  return invoke<void>('refresh_native_menus')
+}
+
 export function getClientRuntimeInfo() {
   return invoke<{
     userId: string
@@ -178,6 +208,7 @@ export function getClientRuntimeInfo() {
     hostname: string
     clientVersion: string
     platform: string
+    arch?: string
     osVersion: string
     localIp: string
     systemLocale: string

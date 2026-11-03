@@ -1,13 +1,44 @@
 use std::path::{Path, PathBuf};
 
 fn main() {
-    // 必须在 tauri_build::build() 之前：tauri.conf.json 里把 transcribe-libs/*
+    // 必须在 tauri_build::build() 之前：tauri.windows.conf.json 里把 transcribe-libs/*
     // 声明成打包资源，而 tauri_build 在构建期就会校验这个 glob 能不能匹配到文件。
     // 目录是这一步生成的，顺序反了会报
     // "glob pattern transcribe-libs/* path not found or didn't match any files"。
     stage_transcribe_runtime_libs();
+    link_clang_runtime_on_macos();
 
     tauri_build::build();
+}
+
+/// macOS：链接 clang 运行时库 `libclang_rt.osx.a`。
+///
+/// transcribe-cpp 里的 ggml-metal 用了 `@available(macOS 15.0, *)` 这类运行时版本判断。
+/// 部署目标低于 15（我们是 14.0）时，编译器把它编成对 `___isPlatformVersionAtLeast` 的调用，
+/// 这个符号在 clang 的运行时库里；rustc 链接时带 `-nodefaultlibs`，不会自动链上它，
+/// 结果就是 `Undefined symbols: ___isPlatformVersionAtLeast`。
+/// 库的位置向 clang 要（`--print-resource-dir`），Command Line Tools 和完整 Xcode 都适用。
+fn link_clang_runtime_on_macos() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        return;
+    }
+    let resource_dir = std::process::Command::new("clang")
+        .arg("--print-resource-dir")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string());
+    let Some(resource_dir) = resource_dir else {
+        println!("cargo:warning=没找到 clang，无法链接 libclang_rt.osx.a（可能报 ___isPlatformVersionAtLeast 未定义）");
+        return;
+    };
+    let lib_dir = Path::new(&resource_dir).join("lib").join("darwin");
+    if !lib_dir.join("libclang_rt.osx.a").is_file() {
+        println!("cargo:warning={} 里没有 libclang_rt.osx.a", lib_dir.display());
+        return;
+    }
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-lib=clang_rt.osx");
 }
 
 /// 把 transcribe-cpp 的运行时库 + ggml 后端模块放到两个地方：
@@ -15,7 +46,7 @@ fn main() {
 /// 1. `target/<profile>/` —— 挨着 dev/release 可执行文件，`cargo tauri dev` 和直接
 ///    跑 exe 时 `init_backends_default()` 才找得到模块。找不到的话注册 0 个设备，
 ///    加载 GGUF 模型直接报 TRANSCRIBE_ERR_BACKEND。
-/// 2. `transcribe-libs/` —— 给 tauri 打包器当资源用（tauri.conf.json 里映射到 exe
+/// 2. `transcribe-libs/` —— 给 tauri 打包器当资源用（tauri.windows.conf.json 里映射到 exe
 ///    同级目录），这样安装出来的应用也带着这些 DLL。
 ///
 /// 静态构建（没开 dynamic-backends/shared）时 `DEP_TRANSCRIBE_CPP_*` 不存在，

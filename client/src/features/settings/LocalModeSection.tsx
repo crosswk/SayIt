@@ -17,6 +17,7 @@ import { refreshModeStatus } from '@/stores/modeStatus'
 import { reconnectProvider } from '@/services/recorder'
 import { describeDownloadError } from '@/lib/errorMessages'
 import { getLocale, t } from '@/i18n'
+import { IS_MAC } from '@/lib/platform'
 import { useT } from '@/i18n/useT'
 import {
   localModelDisplayDescription,
@@ -115,6 +116,12 @@ interface GgufDiagnostics {
 /** 显卡名里的商标噪音（(R) / (TM)）去掉，列表里已经够长了。 */
 function cleanDeviceName(name: string): string {
   return name.replace(/\((R|TM)\)/gi, '').trim()
+}
+
+/** 显卡标签：名字 +「（N GB 显存）」。mac 的 Apple 芯片是统一内存，没有显存可报，只写名字。 */
+function gpuLabel(d: Pick<GgufDevice, 'name' | 'memory_mb'>): string {
+  const vram = !IS_MAC && d.memory_mb > 0 ? t('local.vram', { gb: (d.memory_mb / 1024).toFixed(0) }) : ''
+  return `${cleanDeviceName(d.name)}${vram}`
 }
 
 function formatSize(bytes: number): string {
@@ -432,7 +439,7 @@ export default function LocalModeSection() {
       const gpus = diag.devices.filter((d) => d.kind !== 'cpu')
       setGpuSummary(gpus.length > 0
         ? formatList(gpus
-          .map((d) => `${cleanDeviceName(d.name)}${d.memory_mb > 0 ? t('local.vram', { gb: (d.memory_mb / 1024).toFixed(0) }) : ''}`))
+          .map((d) => gpuLabel(d)))
         : '')
     } catch {
       setGpuSummary(null)
@@ -596,7 +603,7 @@ export default function LocalModeSection() {
           {gpuSummary !== null && (
             <p className="mb-4 text-xs text-muted-foreground">
               {gpuSummary
-                ? t('local.gpuDetected', { gpu: gpuSummary })
+                ? t(IS_MAC ? 'local.gpuDetectedMac' : 'local.gpuDetected', { gpu: gpuSummary })
                 : t('local.noGpu')}
             </p>
           )}
@@ -882,7 +889,7 @@ export function LocalModeAdvancedSection() {
   const gpuDevices = devices.filter((d) => d.is_gpu)
   const hasGpu = gpuDevices.length > 0
   const gpuSummary = formatList(gpuDevices
-    .map((d) => `${cleanDeviceName(d.name)}${d.memory_mb > 0 ? t('local.vram', { gb: (d.memory_mb / 1024).toFixed(0) }) : ''}`))
+    .map((d) => gpuLabel(d)))
 
   /** 只有真的有多张显卡才给这个选择器。单卡机器上它永远只有一个有意义的值，
    *  摆在设置里只是多一个要读懂的东西。CPU 后端下也藏起来——那时它不起作用。 */
@@ -1022,7 +1029,7 @@ export function LocalModeAdvancedSection() {
                   { value: '', label: t('local.gpuDeviceAuto') },
                   ...gpuDevices.map((d) => ({
                     value: d.id,
-                    label: `${cleanDeviceName(d.name)}${d.memory_mb > 0 ? t('local.vram', { gb: (d.memory_mb / 1024).toFixed(0) }) : ''}`,
+                    label: gpuLabel(d),
                   })),
                 ]}
                 className="sm:max-w-md"

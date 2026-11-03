@@ -1,4 +1,5 @@
 import type { AppPromptRule, UserStats } from './types'
+import { IS_MAC } from '@/lib/platform'
 
 // 这里的**数组顺序就是默认优先级**（自上而下先命中先生效，见 promptRouter）。
 // 用户可以在界面上拖动调整，调整后的顺序存进 appPromptRules；这份清单只决定
@@ -9,7 +10,7 @@ import type { AppPromptRule, UserStats } from './types'
 // 多条规则 —— 曾导致在 Outlook 里写标题含「Teams」的邮件被 Teams 规则抢走。
 // 标题匹配只保留给「进程名区分不了」的场景（如网页版应用，进程都是浏览器）。
 
-export const BUILTIN_APP_RULES: AppPromptRule[] = [
+const WINDOWS_BUILTIN_APP_RULES: AppPromptRule[] = [
   {
     id: 'teams',
     appId: 'teams',
@@ -119,6 +120,40 @@ export const BUILTIN_APP_RULES: AppPromptRule[] = [
     },
   },
 ]
+
+/**
+ * macOS 上内置规则的匹配目标：Bundle ID（promptRouter 拿「进程名」同时比 Bundle ID）。
+ * mac 的可执行文件名不可靠（VS Code 的可执行文件叫 Electron），所以这里一律写 Bundle ID；
+ * Codex 的 mac 版 Bundle ID 没核实过，先按可执行文件名匹配。
+ * 两个平台各用各的列表，设置页里不会出现对方平台的标识。
+ */
+const MAC_RULE_OVERRIDES: Record<string, Partial<AppPromptRule> & { processNames: string[] }> = {
+  teams: { processNames: ['com.microsoft.teams2', 'com.microsoft.teams'] },
+  outlook: { processNames: ['com.microsoft.Outlook'] },
+  kiro: { processNames: ['dev.kiro.desktop'] },
+  codex: { processNames: ['codex'] },
+  vscode: { processNames: ['com.microsoft.VSCode'] },
+  cursor: { processNames: ['com.todesktop.230313mzl4w4u92'] },
+  // mac 上没有记事本，对应系统自带的「文本编辑」
+  notepad: {
+    name: 'TextEdit',
+    promptAppend: '面向「文本编辑」，适合随手记录的纯文本。输出纯文本，不要使用 Markdown 标记或特殊格式符号。', // i18n-allow: 中文口述整理 Prompt
+    processNames: ['com.apple.TextEdit'],
+  },
+  weixin: { processNames: ['com.tencent.xinWeChat'] },
+  qq: { processNames: ['com.tencent.qq'] },
+}
+
+function applyMacOverrides(rule: AppPromptRule): AppPromptRule {
+  const override = MAC_RULE_OVERRIDES[rule.id]
+  if (!override) return rule
+  const { processNames, ...fields } = override
+  return { ...rule, ...fields, matcher: { ...rule.matcher, processNames } }
+}
+
+export const BUILTIN_APP_RULES: AppPromptRule[] = IS_MAC
+  ? WINDOWS_BUILTIN_APP_RULES.map(applyMacOverrides)
+  : WINDOWS_BUILTIN_APP_RULES
 
 export function createDefaultUserStats(): UserStats {
   return {

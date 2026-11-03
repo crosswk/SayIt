@@ -10,6 +10,7 @@
  */
 
 import { emit } from '@tauri-apps/api/event'
+import { IS_MAC } from '@/lib/platform'
 import { getPTTPhysicalKeyStates } from './bridge'
 import { getSetting } from './store'
 import { getDefault } from './defaults'
@@ -320,6 +321,9 @@ export function setLabEnabled(enabled: boolean) {
 /** 启动 webview 键盘回退监听 */
 export async function startWebviewKeyboardFallback() {
   if (started) return
+  // macOS 的 CGEventTap 在 SayIt 自己聚焦时也能收到按键（不像 WebView2 会吞掉低级钩子），
+  // 再从 DOM 补发一遍就会重复触发 ptt-down / toggle-hands-free。
+  if (IS_MAC) return
   started = true
 
   await refreshPTTSetting()

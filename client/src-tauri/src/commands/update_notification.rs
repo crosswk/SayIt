@@ -164,6 +164,12 @@ fn fit_on_main_thread(
         .into_iter()
         .find(|monitor| {
             inner.monitor_center.is_some_and(|(x, y)| {
+                // macOS：前台窗口中心是逻辑点，显示器矩形是「逻辑点 × 该屏缩放」，先换成同一单位
+                #[cfg(target_os = "macos")]
+                let (x, y) = {
+                    let scale = monitor.scale_factor();
+                    ((x as f64 * scale).round() as i32, (y as f64 * scale).round() as i32)
+                };
                 let p = monitor.position();
                 let s = monitor.size();
                 x as i64 >= p.x as i64 && (x as i64) < p.x as i64 + s.width as i64
@@ -172,7 +178,11 @@ fn fit_on_main_thread(
         })
         .or_else(|| app.primary_monitor().ok().flatten())
         .ok_or("No monitor available")?;
+    #[cfg(not(target_os = "macos"))]
     let work = monitor.work_area();
+    // macOS：Tauri 的工作区少扣了菜单栏，见 window::macos_work_area
+    #[cfg(target_os = "macos")]
+    let work = &crate::window::macos_work_area(&monitor);
     // Windows「文本大小」会给 WebView2 叠加缩放，CSS px 不能直接当成 Tauri 逻辑像素。
     let css_zoom = (device_pixel_ratio / window.scale_factor().map_err(|e| e.to_string())?).clamp(0.5, 4.0);
     let (x, y, w, h) = notification_bounds(
@@ -223,7 +233,24 @@ fn show_without_activation(window: &WebviewWindow) -> Result<(), String> {
     }
 }
 
-#[cfg(not(windows))]
+/// macOS：`show()` 会把它设成 key window；改用 orderFrontRegardless 不动键盘焦点，
+/// 并设成和语音悬浮窗一样的悬浮层（高层级、跨桌面空间、失活不隐藏）。
+#[cfg(target_os = "macos")]
+fn show_without_activation(window: &WebviewWindow) -> Result<(), String> {
+    let target = window.clone();
+    window
+        .run_on_main_thread(move || {
+            if let Ok(ns_window) = target.ns_window() {
+                unsafe {
+                    crate::platform::macos::appkit::configure_overlay_window(ns_window);
+                    crate::platform::macos::appkit::order_front_regardless(ns_window);
+                }
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn show_without_activation(window: &WebviewWindow) -> Result<(), String> {
     window.show().map_err(|e| e.to_string())
 }

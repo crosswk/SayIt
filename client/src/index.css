@@ -107,32 +107,45 @@
   html[lang="en"] body {
     font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Microsoft YaHei", sans-serif;
   }
+
+  /* macOS（WKWebView）：系统字体和苹方优先，否则装了 Office 的 Mac 会先命中微软雅黑。
+     只有 WebKit 认 -apple-system-body，Windows 的 WebView2 会跳过整段，选字与原来完全一致。 */
+  @supports (font: -apple-system-body) {
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+    }
+    html[lang="en"] body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+  }
 }
 
-/* 自定义滚动条样式 */
+/* 自定义滚动条样式。
+   macOS（<html class="platform-mac">）不用：系统滚动条会跟随「显示滚动条」设置，用触控板时
+   滚动才出现；自定义的细条在 mac 上会一直显示。Windows 不带这个 class，样式与原来一致。 */
 @layer utilities {
 
   /* Webkit 浏览器（Chrome, Safari, Edge） */
-  .custom-scrollbar::-webkit-scrollbar {
+  html:not(.platform-mac) .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
 
-  .custom-scrollbar::-webkit-scrollbar-track {
+  html:not(.platform-mac) .custom-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
 
-  .custom-scrollbar::-webkit-scrollbar-thumb {
+  html:not(.platform-mac) .custom-scrollbar::-webkit-scrollbar-thumb {
     background: hsl(var(--muted-foreground) / 0.3);
     border-radius: 3px;
   }
 
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  html:not(.platform-mac) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground) / 0.5);
   }
 
   /* Firefox */
-  .custom-scrollbar {
+  html:not(.platform-mac) .custom-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
   }
@@ -362,4 +375,33 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/*
+ * macOS：界面文字（标签、标题、按钮、侧栏）像原生应用一样不能拖选，鼠标停在上面是箭头而不是 I 形光标，
+ * ⌘A 也不会把整页刷成蓝色。只给「内容」开回来：输入框、日志和代码、错误信息、历史记录
+ * （.select-text）、标了 .mac-selectable 的结果区。
+ * 规则都包在 :where() 里（优先级为 0），组件上写的 select-none / select-text / select-all 照样生效。
+ * 只对 <html class="platform-mac"> 生效（lib/macWebview.ts），Windows 不受影响。
+ */
+:where(html.platform-mac) body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+:where(html.platform-mac) :where(input, textarea, [contenteditable]:not([contenteditable="false"]), pre, code, kbd, samp, .font-mono, .text-destructive, [class*="text-red-"], [role="alert"], .mac-selectable) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 可点的控件本身永远不可选（放在上一条后面：两条优先级相同，后写的赢） */
+:where(html.platform-mac) :where(button, [role="button"], [role="tab"], [role="switch"], [role="menuitem"], [role="option"], label, summary) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* macOS 的按钮是箭头光标，小手只用在链接上（Tailwind 的 preflight 给所有按钮设了 pointer）。
+   组件上特意写的其它光标（拖动、帮助、禁用……）保留。 */
+:where(html.platform-mac) :is(button, [role="button"]):not(:disabled, .cursor-grab, .cursor-grabbing, .cursor-move, .cursor-help, .cursor-text, .cursor-wait, .cursor-progress, .cursor-not-allowed, .cursor-col-resize, .cursor-row-resize, .cursor-ew-resize, .cursor-ns-resize) {
+  cursor: default;
 }
