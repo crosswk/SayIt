@@ -503,6 +503,8 @@ export class CloudAPIProvider implements TranscriptionProvider {
 
       let asrText = ''
       let asrMs = 0
+      /** 流式收尾拿到了结果；为 false 时走下面的一次性上传 */
+      let streamedOk = false
 
       if (this.streamCommands && this.streamReady) {
         // 流式收尾：先置收尾标志（阻止新音频入队/定时器再发），停定时器，
@@ -516,13 +518,31 @@ export class CloudAPIProvider implements TranscriptionProvider {
 
         addRuntimeEvent('info', 'cloud_api', 'Streaming: sending finish', { command: commands.finish })
         const finishStart = performance.now()
-        const text = await this.invokeNativeFinish(runId, commands.finish)
-        if (text === undefined || !this.isRunCurrent(runId)) return
-        asrText = text
-        asrMs = Math.round(performance.now() - finishStart)
-        addRuntimeEvent('info', 'cloud_api', 'Streaming: recognition complete', { asrMs, textLen: asrText.length })
-      } else {
-        // 没走流式（这家不支持 / 没开字幕 / 建连失败）：录完再发
+        try {
+          const text = await this.invokeNativeFinish(runId, commands.finish)
+          if (text === undefined || !this.isRunCurrent(runId)) return
+          asrText = text
+          asrMs = Math.round(performance.now() - finishStart)
+          streamedOk = true
+          addRuntimeEvent('info', 'cloud_api', 'Streaming: recognition complete', { asrMs, textLen: asrText.length })
+        } catch (err) {
+          if (!this.isRunCurrent(runId)) return
+          // 边录边发的那条连接出了事（服务端提前结束会话、连接被重置、超时），但完整录音
+          // 还在 pcmBuffers 里：直接改走下面的一次性上传，等于自动做一遍「历史里重新识别」。
+          // 以前这里直接报失败，用户只能自己去历史里点重试（诊断包 61c93385：长录音 4/10 失败，
+          // 历史重试全部成功）。只重试一次，一次性上传也失败就照常报错。
+          addRuntimeEvent('warn', 'cloud_api', 'Streaming finish failed; retrying with buffered upload', {
+            error: String(err),
+            durationSec,
+            command: commands.finish,
+          })
+          this.streamCommands = null
+          this.streamReady = false
+        }
+      }
+
+      if (!streamedOk) {
+        // 没走流式（这家不支持 / 没开字幕 / 建连失败），或者流式收尾失败：录完再发
         const merged = new Uint8Array(totalBytes)
         let offset = 0
         for (const buf of this.pcmBuffers) {

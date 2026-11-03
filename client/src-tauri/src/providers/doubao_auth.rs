@@ -105,6 +105,10 @@ pub fn explain_status_code(code: &str) -> Option<&'static str> {
     match code {
         "20000003" => Some("The audio was classified as silence; no speech was detected"),
         "45000030" => Some("This account has not enabled the requested resource or has exhausted its quota; check the Volcengine console"),
+        // 以下三条出自官方《大模型流式语音识别API》错误码表（docs.volcengine.com/docs/6561/1354869）
+        "45000002" => Some("The audio sent to Volcengine was empty"),
+        "45000081" => Some("Volcengine stopped waiting for the next audio packet; the connection stalled while uploading"),
+        "55000031" => Some("Volcengine is overloaded; try again later"),
         _ => {
             if code.starts_with("45") {
                 Some("The request was rejected; check parameters, audio format, and quota in the Volcengine console")
@@ -272,5 +276,19 @@ mod tests {
         let c = cfg("  KEY  ", "  ");
         let auth = DoubaoAuth::from_config(&c);
         assert_eq!(auth.headers(), vec![("X-Api-Key", "KEY")]);
+    }
+}
+
+#[cfg(test)]
+mod status_code_tests {
+    use super::explain_status_code;
+
+    /// 文档里写明的码要有专门的说明，不能落进「45 开头 = 请求被拒」的笼统分支 ——
+    /// 45000081 是网络卡住，让用户去查参数和额度就是把人往错的方向引。
+    #[test]
+    fn documented_codes_get_specific_explanations() {
+        assert!(explain_status_code("45000081").unwrap().contains("next audio packet"));
+        assert!(explain_status_code("45000002").unwrap().contains("empty"));
+        assert!(explain_status_code("55000031").unwrap().contains("overloaded"));
     }
 }
