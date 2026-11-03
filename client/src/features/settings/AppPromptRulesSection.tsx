@@ -86,7 +86,6 @@ export default function AppPromptRulesSection({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   /** 上一轮的已存值，用来分辨"外部真改了内容"和"只是开关或顺序变了" */
   const savedSnapshot = useRef<Record<string, AppPromptRule>>({})
-  const expansionInitialized = useRef(false)
 
   const canSort = rules.length > 1
   const ruleSortable = useSortable({ onMove: (from, to) => void onMoveRule(from, to) })
@@ -108,14 +107,6 @@ export default function AppPromptRulesSection({
       return nextDrafts
     })
     savedSnapshot.current = Object.fromEntries(rules.map((rule) => [rule.id, rule]))
-
-    // 展开状态只在首次载入时按"已启用"推一次。以前每次 rules 变化都重算，
-    // 而现在开关即时落库、拖动也会改 rules —— 那样每动一下都会把用户手动
-    // 折叠/展开的状态弹回去。
-    if (!expansionInitialized.current && rules.length > 0) {
-      expansionInitialized.current = true
-      setExpandedRules(new Set(rules.filter((rule) => rule.enabled).map((rule) => rule.id)))
-    }
   }, [rules])
 
   const presetOptions = [
@@ -140,17 +131,13 @@ export default function AppPromptRulesSection({
   /**
    * 启用/停用即时落库（不需要再点"保存规则"）—— 开关是个状态类控件，
    * 按下去却要另外点保存才算数，用户会以为已经生效了。
-   * 顺手同步展开状态：刚启用的规则通常要接着看一眼它的配置。
+   *
+   * 展开状态只由用户点标题行决定：载入时一律折叠，启用/停用也不碰它。
+   * 以前「已启用就展开、刚启用就展开」，规则一多，页面一进来就是一长串展开的配置，
+   * 用户明确要求改掉（2026-10）。别加回去。
    */
   const handleToggle = (rule: AppPromptRule) => {
-    const enabled = !rule.enabled
-    setExpandedRules((current) => {
-      const next = new Set(current)
-      if (enabled) next.add(rule.id)
-      else next.delete(rule.id)
-      return next
-    })
-    void onToggleRule(rule.id, enabled)
+    void onToggleRule(rule.id, !rule.enabled)
   }
 
   const toggleExpanded = (ruleId: string) => {
