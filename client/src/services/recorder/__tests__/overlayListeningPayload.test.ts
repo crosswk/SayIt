@@ -112,7 +112,10 @@ describe('listening 更新必须始终携带布局判据', () => {
 
 /**
  * 录音时悬浮窗只该收到约 30 次/秒的更新：PCM 在流动时由波形那一路驱动，
- * 定时器只在 33ms 内没人发过时补位。原来两路各自 33ms，合起来接近 60 次/秒。
+ * 定时器只在长时间没人发过时补位。原来两路各自 33ms，合起来接近 60 次/秒。
+ *
+ * 断言必须落在「带 bars 的帧」上，不能只数总次数：0.2.3 里定时器与波形共用 33ms 阈值，
+ * 每轮都是定时器先抢到名额，总数 30 次/秒照样达标，波形却一帧没发出去（issue #90）。
  */
 describe('listening 更新频率', () => {
   beforeEach(() => {
@@ -121,18 +124,21 @@ describe('listening 更新频率', () => {
     vi.useFakeTimers()
   })
 
-  it('PCM 流动时定时器不再重复发送', () => {
+  // 3ms ≈ AudioWorklet 每 128 采样一帧（48kHz）；8/10ms ≈ 音频线程按块批量投递
+  it.each([3, 8, 10])('PCM 每 %dms 一帧时，更新全部由波形那一路发出', (stepMs) => {
     const service = new OverlayService(() => 7)
     service.startListeningTicker(0)
     mocks.updateOverlay.mockClear()
-    // 一秒钟：每 8ms 一帧 PCM（AudioWorklet 一个渲染块）
-    for (let t = 0; t < 1000; t += 8) {
-      vi.advanceTimersByTime(8)
+    for (let t = 0; t < 1000; t += stepMs) {
+      vi.advanceTimersByTime(stepMs)
       service.pushListeningBars([3, 5, 8])
     }
-    const count = mocks.updateOverlay.mock.calls.length
-    expect(count).toBeGreaterThanOrEqual(24)
-    expect(count).toBeLessThanOrEqual(32)
+    const payloads = payloadsFrom()
+    const withBars = payloads.filter((p) => Array.isArray(p.bars)).length
+    expect(withBars).toBeGreaterThanOrEqual(24)
+    expect(payloads.length).toBeLessThanOrEqual(32)
+    // 定时器一次都不该插进来：PCM 流动时它发的帧只会占掉波形的节流名额
+    expect(payloads.length - withBars).toBe(0)
     service.stopListeningTicker()
     vi.useRealTimers()
   })
@@ -142,7 +148,9 @@ describe('listening 更新频率', () => {
     service.startListeningTicker(0)
     mocks.updateOverlay.mockClear()
     vi.advanceTimersByTime(1000)
-    expect(mocks.updateOverlay.mock.calls.length).toBeGreaterThanOrEqual(24)
+    const count = mocks.updateOverlay.mock.calls.length
+    expect(count).toBeGreaterThanOrEqual(3)
+    expect(count).toBeLessThanOrEqual(5)
     service.stopListeningTicker()
     vi.useRealTimers()
   })
