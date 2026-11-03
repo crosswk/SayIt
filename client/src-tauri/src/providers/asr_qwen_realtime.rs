@@ -1,12 +1,16 @@
 // 千问实时语音识别 — qwen3-asr-flash-realtime
 // WebSocket 流式：边录边发，OpenAI Realtime 风格协议
 //
-// 两种模式：
-//  - 普通模式（realtime=false）：send 只发音频，finish 时才收集全部转录结果（默认）。
+// 流式会话两种模式：
+//  - 普通模式（realtime=false）：send 只发音频，finish 时才收集全部转录结果。
 //  - 实时显示模式（realtime=true）：后台 reader 持续读取识别事件，把中间结果通过
 //    `asr-partial` 事件上抛给前端做悬浮窗实时上屏；finish 返回累计的最终文本。
+// 另有一次性识别 `transcribe`（录完再发），见那个函数的注释。
 
-use super::{diag, types::AsrProviderConfig};
+use super::{
+    diag,
+    types::{AsrProviderConfig, AsrResult, TestResult},
+};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -69,6 +73,331 @@ static RT_STATE: once_cell::sync::Lazy<Arc<Mutex<RtState>>> =
 
 static RT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
+const SCOPE: &str = "qwen/realtime";
+
+/// 建 WebSocket 连接。
+///
+/// 填了业务空间 ID 走「北京 + 业务空间」专属端点，没填走通用端点。
+/// 一次性识别那条路不带业务空间 ID，靠的就是通用端点：2026-10-27 实测
+/// （dev-scripts/probe_qwen_realtime_oneshot.py）3 秒、89 秒、5 分钟的录音都能识别。
+async fn connect(api_key: &str, workspace: &str, purpose: &str) -> Result<WsStream, String> {
+    let workspace = workspace.trim();
+    let url = if workspace.is_empty() {
+        format!("wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model={}", MODEL)
+    } else {
+        format!(
+            "wss://{}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model={}",
+            workspace, MODEL
+        )
+    };
+
+    let mut request = url
+        .as_str()
+        .into_client_request()
+        .map_err(|e| diag::fail(SCOPE, "build_request", format!("Failed to build request: {}", e)))?;
+    request.headers_mut().insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", api_key))
+            .map_err(|e| diag::fail_code(SCOPE, "authorization_header", "provider_bad_key", format!("Invalid Authorization header: {}", e)))?,
+    );
+    request.headers_mut().insert(
+        USER_AGENT,
+        HeaderValue::from_static(concat!("SayIt/", env!("CARGO_PKG_VERSION"))),
+    );
+
+    let (ws, response) = tokio_tungstenite::connect_async(request)
+        .await
+        .map_err(|e| diag::fail(SCOPE, "connect", format!("WebSocket connection failed: {}", e)))?;
+    crate::commands::system::write_log_line(&format!(
+        "[RUST] [qwen_stream] connected status={} model={} {} host={}",
+        response.status(),
+        MODEL,
+        purpose,
+        if workspace.is_empty() { "generic" } else { "workspace" }
+    ));
+    Ok(ws)
+}
+
+/// 发 session.update，并等到 session.updated 才算就绪（说明配置被接受、模型可用）。
+/// 若额度耗尽/无权限，服务端会在 session.created 后直接关闭连接（携带原因），
+/// 此时拿不到 session.updated → 返回 Err。
+async fn configure_session(
+    ws: &mut WsStream,
+    sample_rate: u32,
+    hotwords: Option<&[String]>,
+    turn_detection: serde_json::Value,
+) -> Result<(), String> {
+    let mut input_audio_transcription = serde_json::json!({ "language": "zh" });
+    if let Some(words) = hotwords {
+        if let Some(ctx) = super::asr_qwen::build_hotword_context_text(words) {
+            input_audio_transcription["corpus"] = serde_json::json!({ "text": ctx });
+        }
+    }
+    let session_update = serde_json::json!({
+        "event_id": "init_session",
+        "type": "session.update",
+        "session": {
+            "modalities": ["text"],
+            "input_audio_format": "pcm",
+            "sample_rate": sample_rate,
+            "input_audio_transcription": input_audio_transcription,
+            "turn_detection": turn_detection
+        }
+    });
+    ws.send(tungstenite::Message::Text(
+        serde_json::to_string(&session_update).unwrap().into(),
+    ))
+    .await
+    .map_err(|e| diag::fail(SCOPE, "send_session_update", format!("Failed to send session.update: {}", e)))?;
+
+    while let Some(msg) = ws.next().await {
+        let msg = msg.map_err(|e| diag::fail(SCOPE, "recv_ack", format!("Failed to receive acknowledgement: {}", e)))?;
+        match msg {
+            tungstenite::Message::Text(text) => {
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) {
+                    let event_type = data.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    if event_type == "session.updated" {
+                        crate::commands::system::write_log_line("[RUST] [qwen_stream] session updated");
+                        return Ok(());
+                    }
+                    if event_type == "error" {
+                        return Err(diag::fail(SCOPE, "server_error", format!("Server error: {}", event_error_message(&data))));
+                    }
+                }
+            }
+            tungstenite::Message::Close(frame) => {
+                let reason = close_reason(frame);
+                crate::commands::system::write_log_line(&format!(
+                    "[RUST] [qwen_stream] closed before ready: {}",
+                    reason
+                ));
+                return Err(diag::fail(SCOPE, "closed_before_ready", format!("Server closed the session: {}", reason)));
+            }
+            _ => {}
+        }
+    }
+    Err(diag::fail(SCOPE, "closed_before_ready", "WebSocket closed before the session became ready".to_string()))
+}
+
+fn event_error_message(data: &serde_json::Value) -> String {
+    data.get("error")
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())
+        .unwrap_or("Unknown error")
+        .to_string()
+}
+
+fn close_reason(frame: Option<tungstenite::protocol::CloseFrame>) -> String {
+    frame
+        .map(|f| format!("code={} reason={}", u16::from(f.code), f.reason))
+        .unwrap_or_else(|| "No reason".to_string())
+}
+
+/// 一次性识别每包发 1 秒音频。包大小不影响限速（Omni 那边实测过），只影响事件条数。
+const ONESHOT_CHUNK_BYTES: usize = 32_000;
+
+/// 录完再发：整段音频推完 → commit → 等一条 completed。
+///
+/// 关掉实时字幕、或者流式连接没建起来时走这里。**以前这条路走的是 asr_qwen（模型写死
+/// qwen3-asr-flash）**，用户在下拉里选的是 realtime，实际识别、计费的却是另一个模型，
+/// 界面上看不出来。别再把 qwen_realtime 并回 asr_qwen 那个分支。
+///
+/// 为什么关掉 server_vad、手动 commit：录音一口气推上去，VAD 按音频时间轴切句，而录音
+/// 结尾的那句话后面没有足够长的静音，VAD 不会把它判成一句话结束 —— 实测 3 秒的录音
+/// session.finish 之后直接 session.finished、一个字都没有。手动模式下一次 commit 出
+/// 一条 completed，整段一起识别，自带标点（实测 89 秒 2.3 秒出全文）。
+pub async fn transcribe(
+    audio_pcm_b64: &str,
+    sample_rate: u32,
+    config: &AsrProviderConfig,
+    hotwords: &[String],
+) -> Result<AsrResult, String> {
+    use base64::Engine;
+    use futures_util::FutureExt;
+
+    let pcm = base64::engine::general_purpose::STANDARD
+        .decode(audio_pcm_b64)
+        .map_err(|e| diag::fail(SCOPE, "decode_b64", format!("Failed to decode base64 audio: {}", e)))?;
+    if pcm.is_empty() {
+        diag::empty_result(SCOPE, "Input audio was empty; provider request was skipped");
+        return Ok(AsrResult { text: String::new(), elapsed_ms: 0 });
+    }
+    let audio_sec = pcm.len() as f64 / (sample_rate.max(1) as f64 * 2.0);
+    let workspace = config
+        .extra
+        .get("workspaceId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    diag::log(
+        SCOPE,
+        "oneshot_start",
+        &format!("pcm_bytes={} audio_sec={:.1} hotwords={}", pcm.len(), audio_sec, hotwords.len()),
+    );
+
+    let start = Instant::now();
+    let mut ws = connect(&config.api_key, workspace, "oneshot").await?;
+    configure_session(&mut ws, sample_rate, Some(hotwords), serde_json::Value::Null).await?;
+
+    // 先突发后限速，规则与 Omni 共用（同一个接口的上行限速）。
+    // **必须边发边读**：发送期间服务端一直在推 `.text` 中间结果，一路不读的话 5 分钟录音
+    // 会在发送中途被断开（2026-10-27 实测，边读就能过）；服务端在发送途中报的错误和
+    // close 原因也只有这时候读得到，读不到日志里只剩「第 N 包发不出去」。
+    let send_start = Instant::now();
+    let total_chunks = pcm.len().div_ceil(ONESHOT_CHUNK_BYTES);
+    let mut wire_sent: u64 = 0;
+    let mut waits: u32 = 0;
+    for (idx, chunk) in pcm.chunks(ONESHOT_CHUNK_BYTES).enumerate() {
+        let frame = serde_json::json!({
+            "type": "input_audio_buffer.append",
+            "audio": base64::engine::general_purpose::STANDARD.encode(chunk),
+        })
+        .to_string();
+        let frame_len = frame.len() as u64;
+        if let Some(due) = super::asr_qwen_omni::realtime_upload_due(wire_sent, frame_len) {
+            let deadline = send_start + due;
+            if deadline > Instant::now() {
+                waits += 1;
+                tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
+            }
+        }
+        ws.send(tungstenite::Message::Text(frame.into())).await.map_err(|e| {
+            diag::fail(
+                SCOPE,
+                "send_audio",
+                format!("Failed to send audio chunk {}/{} (wire_bytes={}): {}", idx + 1, total_chunks, wire_sent, e),
+            )
+        })?;
+        wire_sent += frame_len;
+
+        while let Some(message) = ws.next().now_or_never().flatten() {
+            match message {
+                Ok(tungstenite::Message::Text(text)) => {
+                    let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+                    if data.get("type").and_then(|t| t.as_str()) == Some("error") {
+                        let _ = ws.close(None).await;
+                        return Err(diag::fail(
+                            SCOPE,
+                            "server_error_while_sending",
+                            format!("Recognition error while sending chunk {}/{}: {}", idx + 1, total_chunks, event_error_message(&data)),
+                        ));
+                    }
+                }
+                Ok(tungstenite::Message::Close(frame)) => {
+                    return Err(diag::fail(
+                        SCOPE,
+                        "closed_while_sending",
+                        format!("Server closed the connection while sending chunk {}/{} (audio={:.1}s): {}", idx + 1, total_chunks, audio_sec, close_reason(frame)),
+                    ));
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    return Err(diag::fail(
+                        SCOPE,
+                        "recv_while_sending",
+                        format!("Read failed while sending chunk {}/{}: {}", idx + 1, total_chunks, e),
+                    ));
+                }
+            }
+        }
+    }
+    // 「限速真的生效了」的证据：排查时先看这一行在不在、waits 是不是 >0。
+    diag::log(
+        SCOPE,
+        "oneshot_pacing",
+        &format!("wire_bytes={} chunks={} waits={} send_ms={}", wire_sent, total_chunks, waits, send_start.elapsed().as_millis()),
+    );
+
+    ws.send(tungstenite::Message::Text(
+        serde_json::json!({ "type": "input_audio_buffer.commit" }).to_string().into(),
+    ))
+    .await
+    .map_err(|e| diag::fail(SCOPE, "send_commit", format!("Failed to commit audio: {}", e)))?;
+
+    // 上限按音频长度放宽：89 秒实测 commit 后约 1.5 秒出全文，长音频线性长一些。
+    let collect_budget = Duration::from_secs(20) + Duration::from_secs_f64(audio_sec.min(600.0) / 2.0);
+    let text = tokio::time::timeout(collect_budget, async {
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| diag::fail(SCOPE, "recv", format!("Failed to receive result: {}", e)))?;
+            match msg {
+                tungstenite::Message::Text(text) => {
+                    let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+                    match data.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+                        "conversation.item.input_audio_transcription.completed" => {
+                            return Ok(data
+                                .get("transcript")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("")
+                                .trim()
+                                .to_string());
+                        }
+                        "error" => {
+                            return Err(diag::fail(SCOPE, "recognition_error", format!("Recognition error: {}", event_error_message(&data))));
+                        }
+                        _ => {}
+                    }
+                }
+                // 协议没跑完就被关：不能当成「识别到空文本」上报成功（pitfalls #15）
+                tungstenite::Message::Close(frame) => {
+                    return Err(diag::fail(
+                        SCOPE,
+                        "closed_before_completed",
+                        format!("The server closed the connection before returning a result: {}", close_reason(frame)),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        Err(diag::fail(SCOPE, "closed_before_completed", "The connection ended before returning a result".to_string()))
+    })
+    .await
+    .map_err(|_| diag::fail(SCOPE, "collect_timeout", "Timed out waiting for the recognition result".to_string()))??;
+
+    // 结果已经到手，收尾失败不影响本次识别
+    let _ = ws
+        .send(tungstenite::Message::Text(
+            serde_json::json!({ "event_id": "finish", "type": "session.finish" }).to_string().into(),
+        ))
+        .await;
+    let _ = ws.close(None).await;
+
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+    if text.is_empty() {
+        diag::empty_result(SCOPE, &format!("Commit completed with no transcript audio_sec={:.1} elapsed={}ms", audio_sec, elapsed_ms));
+    } else {
+        diag::ok(SCOPE, elapsed_ms, text.chars().count());
+    }
+    Ok(AsrResult { text, elapsed_ms })
+}
+
+/// 设置页「测试连接」：握手 + session.update 被接受就算通。
+/// 以前这里走的是 asr_qwen::test_connection，测的是 qwen3-asr-flash 的 HTTP 接口。
+pub async fn test_connection(config: &AsrProviderConfig) -> TestResult {
+    let start = Instant::now();
+    let workspace = config
+        .extra
+        .get("workspaceId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let result = async {
+        let mut ws = connect(&config.api_key, &workspace, "test").await?;
+        configure_session(&mut ws, 16000, None, serde_json::Value::Null).await?;
+        let _ = ws.close(None).await;
+        Ok::<(), String>(())
+    }
+    .await;
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+    match result {
+        Ok(()) => TestResult {
+            ok: true,
+            message: format!("Connection successful ({}ms)", elapsed_ms),
+            elapsed_ms,
+            detail: format!("model: {}", MODEL),
+        },
+        Err(message) => TestResult { ok: false, message, elapsed_ms, detail: String::new() },
+    }
+}
+
 /// 打开千问实时 ASR 会话
 ///
 /// hotwords：热词列表，通过 session.input_audio_transcription.corpus.text 上下文偏置（最多 10000 tokens）
@@ -92,117 +421,21 @@ pub async fn qwen_stream_open(
         }
     }
 
-    // 实时语音识别需使用「地域 + 业务空间」专属端点（北京）；
-    // 未提供 WorkspaceId 时退回通用端点（通常只用于非实时/测试）。
     let workspace = workspace_id.unwrap_or_default();
-    let workspace = workspace.trim();
-    let url = if workspace.is_empty() {
-        format!("wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model={}", MODEL)
-    } else {
-        format!(
-            "wss://{}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model={}",
-            workspace, MODEL
-        )
-    };
-
-    let mut request = url
-        .as_str()
-        .into_client_request()
-        .map_err(|e| diag::fail("qwen/realtime", "build_request", format!("Failed to build request: {}", e)))?;
-    request.headers_mut().insert(
-        AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", config.api_key))
-            .map_err(|e| diag::fail_code("qwen/realtime", "authorization_header", "provider_bad_key", format!("Invalid Authorization header: {}", e)))?,
-    );
-    request.headers_mut().insert(
-        USER_AGENT,
-        HeaderValue::from_static(concat!("SayIt/", env!("CARGO_PKG_VERSION"))),
-    );
-
-    let (mut ws, response) = tokio_tungstenite::connect_async(request)
-        .await
-        .map_err(|e| diag::fail("qwen/realtime", "connect", format!("WebSocket connection failed: {}", e)))?;
-    crate::commands::system::write_log_line(&format!(
-        "[RUST] [qwen_stream] connected status={} model={} realtime={}",
-        response.status(),
-        MODEL,
-        realtime
-    ));
-
-    // 发送 session.update 配置
-    let mut input_audio_transcription = serde_json::json!({
-        "language": "zh"
-    });
-    if let Some(words) = &hotwords {
-        if let Some(ctx) = super::asr_qwen::build_hotword_context_text(words) {
-            input_audio_transcription["corpus"] = serde_json::json!({ "text": ctx });
-        }
-    }
-
+    let mut ws = connect(&config.api_key, &workspace, &format!("stream realtime={}", realtime)).await?;
     // 字段对齐官方 SDK：modalities: ["text"] + 音频格式/采样率 + 语言 + VAD。
-    let session_update = serde_json::json!({
-        "event_id": "init_session",
-        "type": "session.update",
-        "session": {
-            "modalities": ["text"],
-            "input_audio_format": "pcm",
-            "sample_rate": 16000,
-            "input_audio_transcription": input_audio_transcription,
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": 0.0,
-                "silence_duration_ms": 400
-            }
-        }
-    });
-
-    ws.send(tungstenite::Message::Text(
-        serde_json::to_string(&session_update).unwrap().into(),
-    ))
-    .await
-    .map_err(|e| diag::fail("qwen/realtime", "send_session_update", format!("Failed to send session.update: {}", e)))?;
-
-    // 必须等到 session.updated 才算就绪（说明配置被接受、模型可用）。
-    // 若额度耗尽/无权限，服务端会在 session.created 后直接关闭连接（携带原因），
-    // 此时下面循环拿不到 session.updated → 返回 Err → 上层回退到一次性识别。
-    let mut session_ready = false;
-    while let Some(msg) = ws.next().await {
-        let msg = msg.map_err(|e| diag::fail("qwen/realtime", "recv_ack", format!("Failed to receive acknowledgement: {}", e)))?;
-        match msg {
-            tungstenite::Message::Text(text) => {
-                if let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) {
-                    let event_type = data.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                    if event_type == "session.updated" {
-                        session_ready = true;
-                        crate::commands::system::write_log_line("[RUST] [qwen_stream] session updated");
-                        break;
-                    }
-                    if event_type == "error" {
-                        let err_msg = data
-                            .get("error")
-                            .and_then(|e| e.get("message"))
-                            .and_then(|m| m.as_str())
-                            .unwrap_or("Unknown error");
-                        return Err(diag::fail("qwen/realtime", "server_error", format!("Server error: {}", err_msg)));
-                    }
-                }
-            }
-            tungstenite::Message::Close(frame) => {
-                let reason = frame
-                    .map(|f| f.reason.to_string())
-                    .unwrap_or_else(|| "No reason".to_string());
-                crate::commands::system::write_log_line(&format!(
-                    "[RUST] [qwen_stream] closed before ready: {}",
-                    reason
-                ));
-                return Err(diag::fail("qwen/realtime", "closed_before_ready", format!("Server closed the session: {}", reason)));
-            }
-            _ => {}
-        }
-    }
-    if !session_ready {
-        return Err(diag::fail("qwen/realtime", "closed_before_ready", "WebSocket closed before the session became ready".to_string()));
-    }
+    // 边录边发要靠 server_vad 自己切句、逐句出 completed。
+    configure_session(
+        &mut ws,
+        16000,
+        hotwords.as_deref(),
+        serde_json::json!({
+            "type": "server_vad",
+            "threshold": 0.0,
+            "silence_duration_ms": 400
+        }),
+    )
+    .await?;
 
     if realtime {
         let (sink, stream) = ws.split();

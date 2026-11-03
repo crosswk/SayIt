@@ -4,7 +4,7 @@ use super::types::*;
 use super::{
     ai_ollama, ai_openai_compat, asr_doubao, asr_doubao_stream, asr_gemini, asr_gemini_live,
     asr_groq, asr_mimo, asr_openai_chat_audio, asr_openai_compat, asr_openai_realtime,
-    asr_openrouter, asr_qwen, asr_qwen_audio_stream, asr_qwen_omni,
+    asr_openrouter, asr_qwen, asr_qwen_audio_stream, asr_qwen_omni, asr_qwen_realtime,
 };
 use crate::error_protocol;
 
@@ -97,8 +97,20 @@ pub async fn cloud_transcribe(request: CloudTranscribeRequest) -> Result<AsrResu
             )
             .await
         }
-        "qwen" | "aliyun" | "qwen_realtime" => {
+        "qwen" | "aliyun" => {
             asr_qwen::transcribe(
+                &request.audio_b64,
+                request.sample_rate,
+                config,
+                &request.hotwords,
+            )
+            .await
+        }
+        // qwen3-asr-flash-realtime 关掉实时字幕、或流式没连上时的录完再发。
+        // ⚠️ 别并回上面那个分支：asr_qwen 的模型写死 qwen3-asr-flash，用户选 realtime
+        // 却被另一个模型识别、计费，界面上看不出来（2026-10 用户反馈后才发现）。
+        "qwen_realtime" => {
+            asr_qwen_realtime::transcribe(
                 &request.audio_b64,
                 request.sample_rate,
                 config,
@@ -268,7 +280,7 @@ fn fn_body<'a>(source: &'a str, signature: &str) -> &'a str {
 /// 从一段源码里提取 match 臂上的字符串字面量 key。
 ///
 /// 只认「trim 后以 `"` 或 `|` 开头、直到出现 `=>`」的行序列，所以：
-///   · `"qwen" | "aliyun" | "qwen_realtime" => {` —— 一行抓三个；
+///   · `"qwen" | "aliyun" => {` —— 一行抓两个；
 ///   · 臂头换行写的（`"groq_whisper" | …` 换行后 `| "openai_compat_transcribe" => {`）
 ///     靠累积缓冲抓全；
 ///   · `other => Err(…)` 那条兜底臂不以引号开头，不会被抓（它不是一个分发 key）；
@@ -334,7 +346,8 @@ pub async fn test_asr_connection(config: AsrProviderConfig) -> Result<TestResult
     match config.provider.as_str() {
         "doubao" => Ok(asr_doubao::test_connection(&config).await),
         "doubao_v2" => Ok(asr_doubao_stream::test_connection(&config).await),
-        "qwen" | "aliyun" | "qwen_realtime" => Ok(asr_qwen::test_connection(&config).await),
+        "qwen" | "aliyun" => Ok(asr_qwen::test_connection(&config).await),
+        "qwen_realtime" => Ok(asr_qwen_realtime::test_connection(&config).await),
         "qwen_audio_stream" => Ok(asr_qwen_audio_stream::test_connection(&config).await),
         "qwen_omni" => Ok(asr_qwen_omni::test_connection(&config).await),
         "mimo" => Ok(asr_mimo::test_connection(&config).await),

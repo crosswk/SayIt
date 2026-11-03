@@ -91,7 +91,14 @@ fn pacing_due(sent_bytes: u64, next_bytes: u64, pacing: Pacing) -> Option<Durati
 
 /// 这条错误是不是「上行超速被掐」。只认服务端的原话和 close 1007，别的错误一律不重试 ——
 /// 密钥错、额度用完、超时重试一遍只会让用户多等一轮，结果不会变。
-fn is_rate_limited(error: &str) -> bool {
+/// 给同一个 DashScope realtime 接口上的其它一次性路径用（asr_qwen_realtime 的录完再发）：
+/// 限速是接口级的，不分模型，2026-10-27 实测 qwen3-asr-flash-realtime 一口气发 89 秒
+/// 同样被 `Input traffic exceeds the limit of 2560KB/s` 掐断。
+pub(super) fn realtime_upload_due(sent_bytes: u64, next_bytes: u64) -> Option<Duration> {
+    pacing_due(sent_bytes, next_bytes, Pacing::NORMAL)
+}
+
+pub(super) fn is_rate_limited(error: &str) -> bool {
     let lower = error.to_lowercase();
     lower.contains("input traffic exceeds") || lower.contains("code=1007")
 }
