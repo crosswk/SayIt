@@ -49,7 +49,7 @@ export default function SettingsDialog() {
         {/* 关闭按钮 */}
         <button
           onClick={handleClose}
-          className="absolute right-3 top-3 z-10 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+          className="absolute right-3 top-3 z-10 rounded-md p-1.5 text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={t('window.close')}
         >
           <X className="h-4 w-4" />
