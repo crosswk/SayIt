@@ -192,9 +192,17 @@ export function connect(cbs: WSCallbacks): Promise<void> {
     ws = null
   }
 
+  // 新连接一发起（按热键开录、改了服务器地址），排着的自动重连就多余了；不清掉的话
+  // 它到点还会再 connect() 一次，把这条还在握手的连接当成「未就绪」关掉重来。
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+
   return new Promise((resolve, reject) => {
     intentionalClose = false
     serverSupportsTextContext = false
+    let opened = false
     updateGlobalState('connecting')
     const wsUrl = getWSUrl()
     connectStartMs = Date.now()
@@ -219,6 +227,7 @@ export function connect(cbs: WSCallbacks): Promise<void> {
 
     socket.onopen = () => {
       clearTimeout(timeout)
+      opened = true
       openedAtMs = Date.now()
       updateGlobalState('connected')
       const wasReconnect = reconnectAttempts > 0
@@ -320,6 +329,10 @@ export function connect(cbs: WSCallbacks): Promise<void> {
 
     socket.onclose = (ev) => {
       clearTimeout(timeout)
+      // 没 open 就关了（拒连、ALB 502、被 disconnect()/新的 connect() 替换）必须 reject：
+      // 上面这行已经清掉了 10 秒超时，不在这里结束，等它的 await 就永远挂着 ——
+      // 按热键开录时表现为麦克风开着、悬浮窗停在等待、不报错。超时那条路已 reject 过，再调无副作用。
+      if (!opened) reject(new Error(`WebSocket closed before open (code=${ev.code})`))
       if (ws !== socket) {
         addRuntimeEvent('info', 'websocket', 'Ignored close event from stale connection', { code: ev.code })
         return
@@ -342,7 +355,9 @@ export function connect(cbs: WSCallbacks): Promise<void> {
           sentStart,
         })
         reconnectAttempts++
-        reconnectTimer = setTimeout(() => connect(callbacks), delay)
+        // 自动重连没有调用方等结果；失败已由超时/onclose 记过日志，这里吞掉，
+        // 否则每次重连超时都多一条 Unhandled promise rejection。
+        reconnectTimer = setTimeout(() => { connect(callbacks).catch(() => { }) }, delay)
       } else {
         // 主动关闭这一路以前是完全静默的（切换供应商/地址、connect() 替换旧连接、disconnect()）。
         // 现在也记一条，标明是客户端主动关的，便于区分「服务端踢」还是「客户端自己关」。

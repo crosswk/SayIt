@@ -1370,6 +1370,12 @@ export class RecorderOrchestrator {
   private ensureConnection() {
     if (this.provider.isReady()) return
     this.provider.connect(this.buildProviderCallbacks()).catch((err) => {
+      // 服务器模式由 websocket.ts 的 onclose 按指数退避自动重连（3s→30s）。这里再每 5 秒
+      // 补一次，断网时（拒连秒失败）日志会刷屏；主动断开（cleanup/取消）后也会被它拉回来。
+      if (this.provider.mode === 'server') {
+        addRuntimeEvent('warn', 'websocket', 'Preconnection failed; websocket auto-reconnect will retry', { error: String(err) })
+        return
+      }
       addRuntimeEvent('warn', 'websocket', 'Preconnection failed; retrying in 5s', { error: String(err) })
       setTimeout(() => this.ensureConnection(), 5000)
     })
@@ -1734,6 +1740,14 @@ export class RecorderOrchestrator {
 
     } catch (error) {
       resolveCaptureReady!()
+      // 这一代已被取消/替换（Esc、切换模式）时，连接随之被关掉也会走到这里。
+      // 锁、悬浮窗、provider 都归新的一代所有，按上面成功分支的 stale 处理只关采集，
+      // 否则会把新一代重置掉、还弹一条「启动失败」。
+      if (!this.isRunCurrent(runId)) {
+        addRuntimeEvent('info', 'recorder', 'Start failed for a stale run; ignored', { runId, error: String(error) })
+        await stopCapture().catch(() => { })
+        return
+      }
       this.startRecordingLock = false
       this.run.pendingStopWhileStarting = false
       // 录音启动失败也要恢复系统输出，避免系统一直静音
