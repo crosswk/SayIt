@@ -24,20 +24,15 @@ export interface ReleaseHighlights {
 }
 
 export const RELEASE_HIGHLIGHTS: ReleaseHighlights = {
-  version: '0.2.3',
+  version: '0.2.4',
   // getter 防止模块加载时把语言冻结；About 已订阅 locale，重渲染后会重新读取。
   get items() {
     return [
-      t('release.0.2.3.1'),
-      t('release.0.2.3.2'),
-      t('release.0.2.3.3'),
-      t('release.0.2.3.4'),
-      t('release.0.2.3.5'),
-      t('release.0.2.3.6'),
-      t('release.0.2.3.7'),
-      t('release.0.2.3.8'),
-      t('release.0.2.3.9'),
-      t('release.0.2.3.10'),
+      t('release.0.2.4.1'),
+      t('release.0.2.4.2'),
+      t('release.0.2.4.3'),
+      t('release.0.2.4.4'),
+      t('release.0.2.4.5'),
     ]
   },
 }
