@@ -17,7 +17,7 @@ Self-hosted speech-to-text server with real-time ASR and AI cleanup.
 SayIt is a self-hosted speech-to-text service that combines real-time ASR (Qwen3-ASR) with AI cleanup. It provides:
 
 - **Browser Demo** — Record and transcribe directly in the browser, no install needed
-- **Windows Desktop App** — Push-to-talk with automatic paste into any application
+- **Desktop App (Windows and macOS)** — Push-to-talk with automatic paste into any application
 - **Admin Dashboard** — Monitor sessions, performance metrics, GPU/CPU usage
 - **REST & WebSocket API** — Integrate speech-to-text into your own applications
 

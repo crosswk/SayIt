@@ -4,6 +4,19 @@
 
 const LOCALE = (document.documentElement.lang || 'en').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
 
+// iPads also say "Macintosh" in their UA; touch points tell them apart. SayIt doesn't run on an iPad,
+// so it keeps the static Windows-first look rather than pushing a dmg it can't open.
+const onMac = /Macintosh/.test(navigator.userAgent) && !(navigator.maxTouchPoints > 1)
+
+// Each visitor's own platform gets the accent. Swapping classes, not order, so nothing moves after load.
+if (onMac) {
+  document.querySelectorAll('[data-dl-platform]').forEach((a) => {
+    const mine = a.dataset.dlPlatform === 'mac'
+    a.classList.toggle('btn-accent', mine)
+    a.classList.toggle('btn-standard', !mine)
+  })
+}
+
 const MESSAGES = {
   en: {
     'status.unavailable': 'Demo offline',
@@ -988,7 +1001,12 @@ async function loadConfig() {
   state.config = cfg
   // Static HTML points at the GitHub release so crawlers and offline copies still work.
   // The server's own download endpoint is faster for most visitors, so prefer it when offered.
-  if (cfg.download_url) document.querySelectorAll('[data-download]').forEach((a) => { a.href = cfg.download_url })
+  // That endpoint only serves the Windows installer: the Windows buttons always take it, the generic
+  // top-bar "Download" only for non-Mac visitors (on a Mac it stays on the GitHub release, where the dmg is).
+  if (cfg.download_url) {
+    document.querySelectorAll('[data-download-win]').forEach((a) => { a.href = cfg.download_url })
+    if (!onMac) document.querySelectorAll('[data-download]').forEach((a) => { a.href = cfg.download_url })
+  }
   if (cfg.download_version) {
     document.querySelectorAll('[data-version]').forEach((el) => {
       el.textContent = el.dataset.template.replace('{v}', `v${cfg.download_version}`)

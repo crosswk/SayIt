@@ -6,13 +6,13 @@
 
 **Just say it, and write well**
 
-Open-source voice typing for Windows. Press a shortcut and speak—SayIt transcribes, cleans up, and inserts polished text wherever your cursor is.
+Open-source voice typing for Windows and macOS. Press a shortcut and speak—SayIt transcribes, cleans up, and inserts polished text wherever your cursor is.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
-[![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)](https://github.com/crosswk/SayIt/releases/latest)
+[![Platform: Windows | macOS](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-0078D6)](https://github.com/crosswk/SayIt/releases/latest)
 [![Latest release](https://img.shields.io/github/v/release/crosswk/SayIt?label=release)](https://github.com/crosswk/SayIt/releases/latest)
 
-**[Download for Windows](https://github.com/crosswk/SayIt/releases/latest)** · **[Try the web demo](https://sayitapp.site)** · **[简体中文](README.zh-CN.md)**
+**[Download for Windows or Mac](https://github.com/crosswk/SayIt/releases/latest)** · **[Try the web demo](https://sayitapp.site)** · **[简体中文](README.zh-CN.md)**
 
 </div>
 
@@ -28,7 +28,7 @@ Open-source voice typing for Windows. Press a shortcut and speak—SayIt transcr
 
 Typing is often the slowest part of working with AI. SayIt turns speech into text you can use immediately, while keeping the important choices in your hands:
 
-- **Voice typing anywhere** — dictate into editors, chat apps, browsers, and other Windows software.
+- **Voice typing anywhere** — dictate into editors, chat apps, browsers, and other apps on Windows and macOS.
 - **Editable AI cleanup** — remove filler words, repair recognition errors, format ideas, or keep a faithful transcript. Every prompt is yours to change.
 - **Context-aware writing** (off by default) — reads the text around your cursor so new dictation matches its tone and terminology. Select text first and your speech becomes an editing instruction—translate, tighten, rewrite, or ask a question—replacing the selection directly. Selection edits use your current AI model by default; choose a separate saved model in AI cleanup → Context awareness. Password fields are skipped.
 - **Flexible speech recognition** — use a cloud ASR provider, run a local GGUF model on your own GPU, connect to the public trial server, or host your own backend.
@@ -90,11 +90,21 @@ Local recognition ships seven GGUF models, with GPU acceleration when available:
 
 ## Get started
 
-1. Download the latest [Windows installer](https://github.com/crosswk/SayIt/releases/latest).
+1. Download the latest release: `SayIt_<version>_x64-setup.exe` for Windows 10 and 11, or `SayIt_<version>_arm64.dmg` for Macs with Apple silicon on macOS 14 or later.
 2. Open SayIt and choose a voice engine. The default public server is enough for a quick trial.
 3. Press the configured shortcut in any app and speak. By default you press once to start and again to finish; hold-to-talk is available too, under a separate shortcut.
 
 For regular use, choose Local mode or add your own cloud provider keys from the in-app settings. The provider console links are available beside each key field.
+
+### First launch on a Mac
+
+The Mac app is signed but not notarized by Apple, so macOS asks you to confirm it once:
+
+1. Open the dmg and drag SayIt into Applications. Don't run it from the dmg, or updates can't be installed.
+2. Open SayIt from Applications. When macOS says it can't verify the developer, click Done, then go to System Settings → Privacy & Security, scroll down, and click Open Anyway next to the message about SayIt.
+3. Allow the microphone when asked, and turn SayIt on under System Settings → Privacy & Security → Accessibility. Shortcuts, pasting and reading the text around the cursor all need Accessibility.
+
+The default shortcuts on a Mac are Right ⌘ for hands-free (press to start, press again to finish) and Right ⌥ for hold-to-talk. Later updates install from inside the app.
 
 ## Self-hosting
 
@@ -136,6 +146,8 @@ npm run tauri dev
 Requirements: Node.js 18+, Rust 1.75+, CMake 3.20+, and the Vulkan SDK. The first native build compiles the C++ speech engine and may take around 20 minutes; later builds use the cache.
 
 On non-English Windows installations, set `CL=/utf-8` before building so MSVC reads UTF-8 source files correctly.
+
+On macOS (Apple silicon), install the Xcode Command Line Tools (`xcode-select --install`) instead of the Vulkan SDK; local models run on Metal. Release builds come from `client/scripts/macos/build-release.sh`.
 
 ### Server
 

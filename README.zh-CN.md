@@ -13,7 +13,7 @@
 按下快捷键开始说话，再按一次，润色后的文字自动输入到光标位置。
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
-[![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)](https://github.com/crosswk/SayIt/releases)
+[![Platform: Windows | macOS](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-0078D6)](https://github.com/crosswk/SayIt/releases)
 
 **[下载客户端](https://github.com/crosswk/SayIt/releases/latest)** · **[网页版体验](https://sayitapp.site)** · **[配置文档](docs/)**
 
@@ -99,11 +99,21 @@ SayIt 后端部署使用的是 Qwen3-ASR，效果仅次于豆包，开源模型�
 
 **大部分用户直接下载客户端即可，无需任何配置。**
 
-[下载 Windows 安装包](https://github.com/crosswk/SayIt/releases/latest)
+[下载最新版](https://github.com/crosswk/SayIt/releases/latest)：Windows 10 / 11 下载 `SayIt_<版本>_x64-setup.exe`；Mac 下载 `SayIt_<版本>_arm64.dmg`，需要 Apple 芯片和 macOS 14 及以上。
 
 安装后默认连接我提供的公共服务器，开箱即用。服务器端的 AI 使用的是 Groq 提供的 OpenAI 120B 模型，会有免费的请求限制。
 
 也可以先通过 [网页版 Demo](https://sayitapp.site) 快速体验 ASR 的识别速度和效果，无需安装任何东西。
+
+### Mac 第一次打开
+
+Mac 版有签名，但没有经过苹果公证，第一次打开要手动放行一次：
+
+1. 打开 dmg，把 SayIt 拖进「应用程序」。别直接在 dmg 里运行，否则自动更新装不上。
+2. 在「应用程序」里打开 SayIt，系统提示无法验证开发者时点「完成」。然后打开「系统设置 → 隐私与安全性」，拉到最下面，在 SayIt 那一条旁边点「仍要打开」。
+3. 按提示允许麦克风，再到「系统设置 → 隐私与安全性 → 辅助功能」里打开 SayIt。快捷键、自动粘贴、读取光标前后的文字都要这个权限。
+
+Mac 上默认按一下右 ⌘ 开始、再按一下结束，按住右 ⌥ 说话。以后的更新在应用内完成。
 
 ## 使用模式
 
@@ -233,6 +243,8 @@ Vulkan SDK 的 `glslc` 编译 SPIR-V 着色器，缺任一项都会中断构建�
   `Could NOT find Vulkan`，而环境变量看起来明明是对的。
 - 中文等非英文 Windows 需设 `CL=/utf-8`。否则 MSVC 按系统代码页读取 UTF-8 源文件，
   会在只是注释里有非 ASCII 字符的地方报出一串看不懂的语法错误。
+
+macOS（Apple 芯片）上不需要 Vulkan SDK，装 Xcode Command Line Tools（`xcode-select --install`）即可，本地模型走 Metal。正式安装包用 `client/scripts/macos/build-release.sh` 打。
 
 ### 服务端
 

@@ -9,11 +9,11 @@ export default {
   ogLocale: 'zh_CN',
   path: '/zh/',
   meta: {
-    title: 'SayIt · 免费开源的 Windows AI 语音输入法',
+    title: 'SayIt · 免费开源的 AI 语音输入法，支持 Windows 和 Mac',
     description:
       '按下快捷键说话，SayIt 把口语整理好，直接打进 Claude Code、Codex、Kiro 或任何有光标的地方。提示词完全自定义，不用换输入法，能本地识别，也能部署在公司内网。',
     ogImage: '/img/og-zh.jpg',
-    ogImageAlt: 'SayIt：免费开源的 Windows 语音输入法',
+    ogImageAlt: 'SayIt：免费开源的语音输入法，支持 Windows 和 Mac',
   },
   skip: '跳到正文',
   nav: {
@@ -28,6 +28,8 @@ export default {
     feedback: '用户反馈',
     github: 'SayIt 的 GitHub 仓库',
     download: '下载',
+    // 顶栏按钮里并排放 Windows 和苹果两个标志，一眼看出两个平台都有；读屏念这句。
+    downloadLabel: '下载 SayIt，支持 Windows 和 Mac',
     switchTo: { href: '/', hreflang: 'en', label: 'EN', title: 'Switch to English' },
   },
   // App 悬浮窗里的固定文字，与 client/src/i18n/locales/zh-CN.json 一致。
@@ -37,7 +39,9 @@ export default {
     title: '随口说，出色写。',
     lead: '按下右 Alt 说出需求，整理好的提示词直接打进 Claude Code、Codex、Kiro 的输入框。聊天、邮件、文档里也一样能用。',
     cta: '下载 Windows 版',
+    ctaMac: '下载 Mac 版',
     cta2: '在浏览器里试试',
+    macNote: 'Mac 版需要 Apple 芯片和 macOS 14 及以上',
     facts: ['免费开源', '提示词完全自定义', '支持团队本地化部署'],
     stage: {
       label: '示意动画：分别在 Claude Code、Codex 和 Kiro 里口述需求。悬浮窗实时显示识别出的原话，说完后 AI 去掉口头禅、按改口后的说法、纠正术语，再把整理好的提示词粘贴进输入框。',
@@ -469,7 +473,7 @@ export default {
     },
     about: {
       title: '关于',
-      line: '免费开源的 Windows 语音输入法。',
+      line: '免费开源的语音输入法，支持 Windows 和 Mac。',
       github: '在 GitHub 上查看源码',
     },
   },
@@ -504,7 +508,7 @@ export default {
       },
       {
         q: '支持 Mac 和手机吗？',
-        a: '暂时不支持。目前只有 Windows 10 和 Windows 11 版。',
+        a: 'Mac 支持，需要 Apple 芯片（M1 及以后）和 macOS 14 及以上，在 GitHub 下载 dmg 安装。手机版暂时没有。',
       },
       {
         q: '要换掉我现在的输入法吗？',
@@ -516,7 +520,7 @@ export default {
       },
       {
         q: '快捷键怎么用？',
-        a: '默认按一下右 Alt 开始说，再按一下结束，整理好的文字直接打出来。也可以另设一个键按住说话、松开结束，快捷键能换成别的键或鼠标侧键。',
+        a: '默认按一下右 Alt 开始说，再按一下结束，整理好的文字直接打出来。也可以另设一个键按住说话、松开结束，快捷键能换成别的键或鼠标侧键。Mac 上默认按一下右 ⌘ 开始和结束，按住右 ⌥ 说话。',
       },
       {
         q: '电脑配置要求高吗？',
@@ -532,16 +536,16 @@ export default {
       },
       {
         q: '和 Typeless、Wispr Flow 比怎么样？',
-        a: '做的是同一件事。它们是订阅制的云服务；SayIt 免费开源，提示词能自己写，识别也能放在本机或公司内网。目前只有 Windows 版。',
+        a: '做的是同一件事。它们是订阅制的云服务；SayIt 免费开源，提示词能自己写，识别也能放在本机或公司内网。Windows 和 Mac 都能用。',
       },
     ],
   },
   closer: {
     title: '按下右 Alt，开口就行。',
-    lead: '免费下载，支持 Windows 10 / 11。',
+    lead: '免费下载，支持 Windows 10 / 11 和 macOS 14 及以上。',
   },
   footer: {
-    tagline: '免费开源的 Windows 语音输入法。',
+    tagline: '免费开源的语音输入法，支持 Windows 和 Mac。',
     version: '最新版本 {v}',
     product: '产品',
     docs: '文档',
@@ -565,7 +569,7 @@ export default {
   jsonld: {
     category: '语音输入，语音转文字',
     features: [
-      '在任何 Windows 应用里用全局快捷键语音输入，不用换输入法',
+      '在 Windows 和 Mac 的任何应用里用全局快捷键语音输入，不用换输入法',
       '整理提示词完全自定义，能按应用自动切换',
       '本地 GGUF 模型离线识别，支持显卡加速',
       '云 API 模式，使用自己的识别和 AI 服务商密钥',

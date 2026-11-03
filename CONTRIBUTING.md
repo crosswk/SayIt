@@ -36,7 +36,8 @@ npm run tauri dev
 
 前置要求：Node.js 18+、Rust 1.75+、CMake 3.20+、Vulkan SDK
 （本地识别引擎要用 CMake 编原生库、Vulkan SDK 编 SPIR-V 着色器；装完请新开终端，
-非英文 Windows 还需设 `CL=/utf-8`。详见 README 的「开发 / 客户端」一节。）
+非英文 Windows 还需设 `CL=/utf-8`。macOS 上不需要 Vulkan SDK，装 Xcode Command Line Tools 即可。
+详见 README 的「开发 / 客户端」一节。）
 
 ### 服务端
 

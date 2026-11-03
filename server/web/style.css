@@ -420,6 +420,25 @@ del {
   margin-left: 4px;
 }
 
+/* Both platform marks ahead of the label, set off by a hairline, so "this is for Windows and Mac"
+   reads before the word does. */
+.topbar-dl {
+  gap: 9px;
+  padding-left: 12px;
+}
+
+.dl-logos {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 9px;
+  border-right: 1px solid rgba(250, 250, 250, 0.24);
+}
+
+.dl-logos .ico {
+  display: block;
+}
+
 /* ── Hero ─────────────────────────────────────────────────────────────────── */
 
 .hero {
@@ -466,6 +485,37 @@ del {
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 32px;
+}
+
+/* Under the two download buttons: the Mac requirement, then the no-install option as a quiet link. */
+.hero-alt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.hero-alt>span {
+  color: var(--text-3);
+}
+
+.hero-alt a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: var(--text-1);
+  text-decoration: underline;
+  text-decoration-color: var(--stroke-strong);
+  text-underline-offset: 4px;
+  transition: text-decoration-color 0.15s ease-out;
+}
+
+.hero-alt a:hover {
+  text-decoration-color: currentColor;
 }
 
 .hero-facts {

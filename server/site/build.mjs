@@ -26,7 +26,7 @@ const RELEASES = `${REPO}/releases/latest`
 const LICENSE_URL = 'https://www.gnu.org/licenses/agpl-3.0.html'
 // Bump when the page content changes meaningfully; feeds sitemap <lastmod>.
 // A build date would change on every run and make the output non-reproducible.
-const UPDATED = '2026-10-13'
+const UPDATED = '2026-11-03'
 const LOCALES = [en, zh]
 
 // The public feedback board only exists on the deployed site (it needs a backend the public
@@ -214,6 +214,12 @@ const svg = (body, { size = 20, fill = false, cls = '' } = {}) =>
 
 const I = {
   windows: (o) => svg('<path d="M3 5.2 10.4 4.2v7.1H3zM11.6 4 21 2.7v8.6h-9.4zM3 12.7h7.4v7.1L3 18.8zM11.6 12.7H21v8.6l-9.4-1.3z"/>', { fill: true, ...o }),
+  // Simple Icons "apple" (CC0), filled like the Windows mark beside it.
+  apple: (o) =>
+    svg(
+      '<path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/>',
+      { fill: true, ...o },
+    ),
   github: (o) =>
     svg(
       '<path d="M12 1.8a10.2 10.2 0 0 0-3.2 19.9c.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.6 1.1 1.6 1.1.9 1.6 2.4 1.1 3 .8.1-.7.4-1.1.7-1.4-2.3-.3-4.6-1.1-4.6-5a3.9 3.9 0 0 1 1-2.7c-.1-.3-.5-1.3.1-2.7 0 0 .9-.3 2.8 1a9.6 9.6 0 0 1 5.1 0c1.9-1.3 2.8-1 2.8-1 .6 1.4.2 2.4.1 2.7a3.9 3.9 0 0 1 1 2.7c0 3.9-2.3 4.8-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10.2 10.2 0 0 0 12 1.8z"/>',
@@ -293,7 +299,7 @@ function header(t) {
     <div class="topbar-actions">
       <a class="ime" href="${n.switchTo.href}" hreflang="${n.switchTo.hreflang}" lang="${n.switchTo.hreflang}" title="${esc(n.switchTo.title)}">${esc(n.switchTo.label)}</a>
       <a class="icon-btn topbar-gh" href="${REPO}" rel="noopener" aria-label="${esc(n.github)}">${I.github({ size: 18 })}</a>
-      <a class="btn btn-accent" href="${RELEASES}" data-download>${I.download({ size: 16 })}<span>${esc(n.download)}</span></a>
+      <a class="btn btn-accent topbar-dl" href="${RELEASES}" data-download aria-label="${esc(n.downloadLabel)}"><span class="dl-logos">${I.windows({ size: 14 })}${I.apple({ size: 14 })}</span><span>${esc(n.download)}</span></a>
     </div>
   </div>
 </header>`
@@ -446,9 +452,9 @@ function hero(t) {
       <h1 id="hero-title">${display(h.title)}</h1>
       <p class="hero-lead">${para(h.lead)}</p>
       <div class="hero-actions">
-        <a class="btn btn-accent btn-lg" href="${RELEASES}" data-download>${I.windows({ size: 18 })}<span>${esc(h.cta)}</span></a>
-        <a class="btn btn-standard btn-lg" href="#demo">${I.mic({ size: 18 })}<span>${esc(h.cta2)}</span></a>
+        ${downloadButtons(t)}
       </div>
+      <p class="hero-alt">${esc(h.macNote)}<span aria-hidden="true">·</span><a href="#demo">${I.mic({ size: 15 })}<span>${esc(h.cta2)}</span></a></p>
       <ul class="hero-facts">${h.facts.map((f) => `<li>${I.check({ size: 16 })}<span>${esc(f)}</span></li>`).join('')}</ul>
     </div>
     <figure class="stage" data-replay data-state="summary" aria-labelledby="stage-label">
@@ -1027,11 +1033,23 @@ function closer(t) {
     ${hx('h2', t.closer.title, ' id="closer-title"')}
     <p>${para(t.closer.lead)}</p>
     <div class="closer-actions">
-      <a class="btn btn-accent btn-lg" href="${RELEASES}" data-download>${I.windows({ size: 18 })}<span>${esc(t.hero.cta)}</span></a>
+      ${downloadButtons(t)}
       <a class="btn btn-standard btn-lg" href="${REPO}" rel="noopener">${I.github({ size: 18 })}<span>GitHub</span></a>
     </div>
   </div>
 </section>`
+}
+
+/* One button per platform (owner, 2026-11-03). Windows is the accent in the static HTML; app.js
+   moves the accent to the Mac button for Mac visitors, so each visitor's own platform reads first
+   without the page reordering itself after load.
+   The Windows button takes the server's download endpoint when it has one ([data-download-win]);
+   the Mac one always points at the GitHub release, where the dmg is, because that endpoint only
+   serves the Windows installer. */
+function downloadButtons(t) {
+  const h = t.hero
+  return `<a class="btn btn-accent btn-lg" href="${RELEASES}" data-download-win data-dl-platform="win">${I.windows({ size: 18 })}<span>${esc(h.cta)}</span></a>
+        <a class="btn btn-standard btn-lg" href="${RELEASES}" rel="noopener" data-dl-platform="mac">${I.apple({ size: 18 })}<span>${esc(h.ctaMac)}</span></a>`
 }
 
 function footer(t) {
@@ -1082,7 +1100,7 @@ function structuredData(t) {
         inLanguage: t.lang,
         applicationCategory: 'UtilitiesApplication',
         applicationSubCategory: t.jsonld.category,
-        operatingSystem: 'Windows 10, Windows 11',
+        operatingSystem: 'Windows 10, Windows 11, macOS 14',
         isAccessibleForFree: true,
         offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
         license: LICENSE_URL,
@@ -1229,16 +1247,16 @@ function llms() {
   const faqEn = en.faq.items.map((it) => `### ${it.q}\n\n${it.a}`).join('\n\n')
   return `# SayIt
 
-> SayIt is a free, open-source (AGPL-3.0) voice typing app for Windows 10 and 11. Press a shortcut in any app, speak, and SayIt transcribes, cleans up and types polished text at the cursor. Speech recognition runs locally on your PC, through your own cloud API keys, or on a SayIt server (the public trial server or one you host).
+> SayIt is a free, open-source (AGPL-3.0) voice typing app for Windows 10 and 11 and for macOS 14 or later on Apple silicon. Press a shortcut in any app, speak, and SayIt transcribes, cleans up and types polished text at the cursor. Speech recognition runs locally on your computer, through your own cloud API keys, or on a SayIt server (the public trial server or one you host).
 
-SayIt 是一款免费开源的 Windows 语音输入法：在任何应用里按快捷键说话，整理好的文字直接输入到光标处。中文介绍：${ORIGIN}/zh/
+SayIt 是一款免费开源的语音输入法，支持 Windows 和 Mac：在任何应用里按快捷键说话，整理好的文字直接输入到光标处。中文介绍：${ORIGIN}/zh/
 
 ## Key facts
 
-- Platform: Windows 10 and Windows 11 only. No macOS, Linux or mobile version.
+- Platforms: Windows 10 and 11 (x64), and macOS 14 or later on Apple silicon (M1 or later). No Intel Mac, Linux or mobile version.
 - Price: free, no account, no subscription. Licensed under AGPL-3.0.
 - Not an input method: it runs on a global shortcut next to whatever keyboard or IME you already use.
-- Default shortcut: press Right Alt once to start and again to finish; hold-to-talk is available on a separate shortcut.
+- Default shortcut: press Right Alt (Right ⌘ on a Mac) once to start and again to finish; hold-to-talk is on a separate shortcut (Right Ctrl on Windows, Right ⌥ on a Mac).
 - Common use: dictating prompts to AI coding tools such as Claude Code, Codex, Kiro and Cursor. It types at the cursor, so terminals, IDEs, browsers and chat apps all work.
 - AI cleanup removes filler words, follows self-corrections, formats spoken lists and fixes names and terms. Every prompt is editable, prompts can switch per app, and cleanup can be turned off.
 - Local mode: seven GGUF models (Parakeet Unified EN, SenseVoice Small, Fun-ASR Nano, Nemotron 3.5 ASR with 32 languages, three Qwen3-ASR sizes). About 9 s of speech is transcribed in under a second on a CPU; a GPU is used when present.
@@ -1251,7 +1269,7 @@ SayIt 是一款免费开源的 Windows 语音输入法：在任何应用里按�
 
 ## Links
 
-- [Download the latest Windows release](${RELEASES})
+- [Download the latest release](${RELEASES}): Windows installer and Mac dmg
 - [Source code on GitHub](${REPO})
 - [README](${DOCS.readme}): overview, modes, models and self-hosting
 - [README in Chinese](${DOCS.readmeZh})

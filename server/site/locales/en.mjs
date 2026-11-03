@@ -12,11 +12,11 @@ export default {
   ogLocale: 'en_US',
   path: '/',
   meta: {
-    title: 'SayIt · Free, open-source voice typing for Windows',
+    title: 'SayIt · Free, open-source voice typing for Windows and Mac',
     description:
       'Press a shortcut, speak, and SayIt types a clean prompt into Claude Code, Codex, Kiro or anywhere you can type. Write your own cleanup prompts, keep your keyboard, run it locally or on your company’s server.',
     ogImage: '/img/og-en.jpg',
-    ogImageAlt: 'SayIt: free, open-source voice typing for Windows',
+    ogImageAlt: 'SayIt: free, open-source voice typing for Windows and Mac',
   },
   skip: 'Skip to content',
   nav: {
@@ -30,6 +30,8 @@ export default {
     feedback: 'Feedback',
     github: 'SayIt on GitHub',
     download: 'Download',
+    // The top-bar button shows the Windows and Apple marks side by side; screen readers get this.
+    downloadLabel: 'Download SayIt for Windows or Mac',
     switchTo: { href: '/zh/', hreflang: 'zh-CN', label: '中文', title: '切换到中文' },
   },
   // Fixed overlay strings, as in client/src/i18n/locales/en.json.
@@ -38,7 +40,9 @@ export default {
     title: 'Just say it,<br>and write well.',
     lead: 'Press Right Alt and say what you want. A clean prompt lands in Claude Code, Codex, Kiro, or anywhere else you can type.',
     cta: 'Download for Windows',
+    ctaMac: 'Download for Mac',
     cta2: 'Try it in your browser',
+    macNote: 'The Mac version needs Apple silicon and macOS 14 or later',
     facts: ['Free and open source', 'Fully custom prompts', 'Self-host it for your team'],
     stage: {
       label:
@@ -469,7 +473,7 @@ export default {
     },
     about: {
       title: 'About',
-      line: 'Free, open-source voice typing for Windows.',
+      line: 'Free, open-source voice typing for Windows and Mac.',
       github: 'View the source on GitHub',
     },
   },
@@ -505,7 +509,7 @@ export default {
       },
       {
         q: 'Is there a Mac or phone version?',
-        a: 'Not yet. SayIt runs on Windows 10 and Windows 11 only.',
+        a: 'Mac, yes: it needs Apple silicon (M1 or later) and macOS 14 or later, and the dmg is on GitHub. There is no phone version yet.',
       },
       {
         q: 'Do I have to replace my keyboard or input method?',
@@ -517,7 +521,7 @@ export default {
       },
       {
         q: 'How does the shortcut work?',
-        a: 'Press Right Alt once to start and again to finish, and the cleaned-up text is typed for you. You can also set a separate hold-to-talk key, and either one can be another key or a mouse side button.',
+        a: 'Press Right Alt once to start and again to finish, and the cleaned-up text is typed for you. You can also set a separate hold-to-talk key, and either one can be another key or a mouse side button. On a Mac the defaults are Right ⌘ to start and finish, and Right ⌥ to hold and talk.',
       },
       {
         q: 'Do I need a powerful PC?',
@@ -533,16 +537,16 @@ export default {
       },
       {
         q: 'How does it compare with Typeless or Wispr Flow?',
-        a: 'It does the same job. They are subscription cloud services; SayIt is free and open source, lets you write your own prompts, and can recognize speech on your PC or your company’s network. It is Windows only for now.',
+        a: 'It does the same job. They are subscription cloud services; SayIt is free and open source, lets you write your own prompts, and can recognize speech on your computer or your company’s network. It runs on Windows and Mac.',
       },
     ],
   },
   closer: {
     title: 'Press Right Alt. Say it.',
-    lead: 'Free for Windows 10 and 11.',
+    lead: 'Free for Windows 10 and 11, and macOS 14 or later.',
   },
   footer: {
-    tagline: 'Free, open-source voice typing for Windows.',
+    tagline: 'Free, open-source voice typing for Windows and Mac.',
     version: 'Latest version {v}',
     product: 'Product',
     docs: 'Docs',
@@ -566,7 +570,7 @@ export default {
   jsonld: {
     category: 'Voice typing, speech to text',
     features: [
-      'Voice typing in any Windows app with a global shortcut, alongside your existing keyboard',
+      'Voice typing in any Windows or Mac app with a global shortcut, alongside your existing keyboard',
       'Fully customizable cleanup prompts that switch per app',
       'Local speech recognition with GGUF models and GPU acceleration',
       'Cloud API mode with your own speech and AI provider keys',
