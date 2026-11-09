@@ -18,6 +18,7 @@ import { setActivePresetKnown } from '../../stores/activePreset'
 import { addRuntimeEvent } from '../debugLog'
 import {
   BUILTIN_SET_ACTIVE_KEY,
+  BUILTIN_SET_EXTRA_WORDS_KEY,
   BUILTIN_SET_WORDS_KEY,
   CUSTOM_THEME_ACTIVE_KEY,
   CUSTOM_THEMES_KEY,
@@ -728,8 +729,9 @@ export class RecorderOrchestrator {
         getSetting(BUILTIN_SET_ACTIVE_KEY, {}),
         getSetting(CUSTOM_THEMES_KEY, []),
         getSetting(CUSTOM_THEME_ACTIVE_KEY, {}),
-      ]).then(([rawSetWords, rawSetActive, rawCustomThemes, rawCustomThemeActive]) => {
-        const setWords = normalizeBuiltinSetWords(rawSetWords as Record<string, unknown>)
+        getSetting(BUILTIN_SET_EXTRA_WORDS_KEY, {}),
+      ]).then(([rawSetWords, rawSetActive, rawCustomThemes, rawCustomThemeActive, rawSetExtraWords]) => {
+        const setWords = normalizeBuiltinSetWords(rawSetWords, rawSetExtraWords)
         const setActive = normalizeBuiltinSetActive(rawSetActive as Record<string, unknown>)
         const themes = normalizeCustomThemes(rawCustomThemes)
         const themeActive = normalizeCustomThemeActive(rawCustomThemeActive as Record<string, unknown>, themes)

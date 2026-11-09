@@ -25,7 +25,7 @@ import * as bridge from '@/services/bridge'
 import { exportHotwords } from '@/services/exports'
 import { getSetting } from '@/services/store'
 import { BUILTIN_SETS, MAX_HOTWORDS } from '@/services/hotwords/model'
-import { useHotwordsManager } from '@/services/hotwords/useHotwordsManager'
+import { builtinInputKey, useHotwordsManager } from '@/services/hotwords/useHotwordsManager'
 import TextReplacementSection from '@/components/TextReplacementSection'
 import TextFormatSection from '@/components/TextFormatSection'
 import { useSortable, DragHandle } from '@/components/ui/sortable'
@@ -514,6 +514,7 @@ export default function Dictionary() {
     setThemeInput,
     addTheme,
     addWordsToTheme,
+    addWordsToBuiltinSet,
     removeTheme,
     moveTheme,
     toggleCustomTheme,
@@ -521,6 +522,19 @@ export default function Dictionary() {
     toggleBuiltinSet,
     resetBuiltinSet,
   } = useHotwordsManager()
+
+  // 内置分类「恢复默认」的二次确认：记下哪个分类已点过第一下，3 秒没再点就撤回
+  const [resetArmedKey, setResetArmedKey] = useState<string | null>(null)
+  useEffect(() => {
+    if (!resetArmedKey) return
+    const timer = setTimeout(() => setResetArmedKey(null), 3000)
+    return () => clearTimeout(timer)
+  }, [resetArmedKey])
+  const isBuiltinSetModified = (key: string) => {
+    const words = builtinSetWords[key] || []
+    const defaults = new Set(BUILTIN_SETS[key]?.words ?? [])
+    return words.length !== defaults.size || words.some((word) => !defaults.has(word))
+  }
 
   // 搜索时列表是过滤后的，序号对不上完整列表，因此搜索状态下不启用拖拽
   const themeSortable = useSortable({ onMove: (from, to) => void moveTheme(from, to) })
@@ -765,10 +779,14 @@ export default function Dictionary() {
                   return null
                 }
 
+                const inputKey = builtinInputKey(key)
+                const modified = isBuiltinSetModified(key)
+                const resetTip = t(modified ? 'dict.resetTip' : 'dict.resetTipDefault')
+
                 return (
                   <Card key={key} className={cn(!active && 'border-dashed opacity-70')}>
                     <CardContent className="p-4">
-                      <div className={cn('flex items-center justify-between gap-3', active && activeWords.length > 0 && 'mb-3')}>
+                      <div className={cn('flex items-center justify-between gap-3', active && 'mb-3')}>
                         <div className="flex items-center gap-3 min-w-0">
                           {/* 自建分类可拖动时左边有手柄，内置分类留同宽空位，名字才能对齐 */}
                           {!search && customThemes.length > 1 && <span className="w-[22px] shrink-0" aria-hidden />}
@@ -780,14 +798,33 @@ export default function Dictionary() {
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-3">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 gap-1 px-2 text-xs"
-                            onClick={() => void resetBuiltinSet(key)}
-                          >
-                            <RotateCcw className="h-3 w-3" /> {t('dict.reset')}
-                          </Button>
+                          {/* 和自建分类的删除键同一种小图标按钮。词表没改过时置灰、点不了（藏起来的话用户以为按钮丢了）；
+                              改过之后要点两下：第一下变成「确认恢复」，3 秒内再点才执行 —— 它会清掉用户加的词，
+                              以前是个带文字的大按钮，挨着开关，很容易误点。 */}
+                          {resetArmedKey === key && modified ? (
+                            <button
+                              type="button"
+                              onClick={() => { setResetArmedKey(null); void resetBuiltinSet(key) }}
+                              className="rounded px-1.5 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10"
+                            >
+                              {t('dict.resetConfirm')}
+                            </button>
+                          ) : (
+                            <Tooltip content={resetTip}>
+                              {/* 包一层 span：disabled 的 button 不派发鼠标事件，提示会出不来 */}
+                              <span className="inline-flex">
+                                <button
+                                  type="button"
+                                  disabled={!modified}
+                                  onClick={() => setResetArmedKey(key)}
+                                  className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+                                  aria-label={resetTip}
+                                >
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </button>
+                              </span>
+                            </Tooltip>
+                          )}
                           <Switch
                             checked={active}
                             onChange={() => void toggleBuiltinSet(key)}
@@ -796,8 +833,38 @@ export default function Dictionary() {
                         </div>
                       </div>
 
-                      {active && activeWords.length > 0 && (
-                        <WordChips words={activeWords} onRemove={removeWord} expandAll={!!search} />
+                      {/* 和自建分类同一套添加框：用户常想把自己领域的词补进内置分类，而不是为一两个词另建分类 */}
+                      {active && (
+                        <div className="space-y-3">
+                          <div className="flex gap-2">
+                            <input
+                              value={themeInputs[inputKey] || ''}
+                              onChange={(e) => setThemeInput(inputKey, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault()
+                                  void addWordsToBuiltinSet(key)
+                                }
+                              }}
+                              placeholder={t('dict.addWordsPlaceholder')}
+                              className="flex-1 rounded-md border border-input-border bg-input-bg px-3 py-1.5 text-sm"
+                            />
+                            <Button
+                              onClick={() => void addWordsToBuiltinSet(key)}
+                              size="sm"
+                              variant="outline"
+                              disabled={!(themeInputs[inputKey] || '').trim()}
+                              className="shrink-0 gap-1.5"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              {t('dict.add')}
+                            </Button>
+                          </div>
+
+                          {activeWords.length > 0 && (
+                            <WordChips words={activeWords} onRemove={removeWord} expandAll={!!search} />
+                          )}
+                        </div>
                       )}
                     </CardContent>
                   </Card>

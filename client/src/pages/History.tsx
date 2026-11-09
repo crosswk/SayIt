@@ -36,6 +36,7 @@ import { buildHotwordInjectionPart } from '@/services/personalization/promptRout
 import {
   BUILTIN_SET_WORDS_KEY,
   BUILTIN_SET_ACTIVE_KEY,
+  BUILTIN_SET_EXTRA_WORDS_KEY,
   CUSTOM_THEMES_KEY,
   CUSTOM_THEME_ACTIVE_KEY,
   composeHotwords,
@@ -539,13 +540,14 @@ export default function History() {
     // 加载热词
     let hotwords: string[] = []
     try {
-      const [rawSetWords, rawSetActive, rawCustomThemes, rawCustomThemeActive] = await Promise.all([
+      const [rawSetWords, rawSetActive, rawCustomThemes, rawCustomThemeActive, rawSetExtraWords] = await Promise.all([
         getSetting(BUILTIN_SET_WORDS_KEY, {}),
         getSetting(BUILTIN_SET_ACTIVE_KEY, {}),
         getSetting(CUSTOM_THEMES_KEY, []),
         getSetting(CUSTOM_THEME_ACTIVE_KEY, {}),
+        getSetting(BUILTIN_SET_EXTRA_WORDS_KEY, {}),
       ])
-      const setWords = normalizeBuiltinSetWords(rawSetWords as Record<string, unknown>)
+      const setWords = normalizeBuiltinSetWords(rawSetWords, rawSetExtraWords)
       const setActive = normalizeBuiltinSetActive(rawSetActive as Record<string, unknown>)
       const themes = normalizeCustomThemes(rawCustomThemes)
       const themeActive = normalizeCustomThemeActive(rawCustomThemeActive as Record<string, unknown>, themes)

@@ -4,6 +4,7 @@ import { getSetting, setSetting } from '@/services/store'
 import {
   BUILTIN_SETS,
   BUILTIN_SET_ACTIVE_KEY,
+  BUILTIN_SET_EXTRA_WORDS_KEY,
   BUILTIN_SET_WORDS_KEY,
   BUILTIN_WORD_SET,
   CUSTOM_THEME_ACTIVE_KEY,
@@ -13,6 +14,7 @@ import {
   collectAllSourceWords,
   composeHotwords,
   createThemeId,
+  extractBuiltinSetExtraWords,
   normalizeBuiltinSetActive,
   normalizeBuiltinSetWords,
   normalizeCustomThemeActive,
@@ -22,6 +24,19 @@ import {
 } from './model'
 import { t } from '@/i18n'
 import { hotwordsReducer, initialHotwordsState } from './stateMachine'
+
+/** 内置分类的词表一律经这里写：用户自加的词要同时写进单独那份（原因见 BUILTIN_SET_EXTRA_WORDS_KEY）。 */
+function persistBuiltinWords(wordsMap: Record<string, string[]>) {
+  return Promise.all([
+    setSetting(BUILTIN_SET_WORDS_KEY, wordsMap),
+    setSetting(BUILTIN_SET_EXTRA_WORDS_KEY, extractBuiltinSetExtraWords(wordsMap)),
+  ])
+}
+
+/** 内置分类的添加框在 themeInputs 里用的键，加前缀免得和自建分类的 id 撞上 */
+export function builtinInputKey(setKey: string) {
+  return `builtin:${setKey}`
+}
 
 export function useHotwordsManager() {
   const [state, dispatch] = useReducer(hotwordsReducer, initialHotwordsState)
@@ -47,7 +62,7 @@ export function useHotwordsManager() {
     activeMap: Record<string, boolean>,
   ) => {
     await Promise.all([
-      setSetting(BUILTIN_SET_WORDS_KEY, wordsMap),
+      persistBuiltinWords(wordsMap),
       setSetting(BUILTIN_SET_ACTIVE_KEY, activeMap),
     ])
   }, [])
@@ -71,12 +86,14 @@ export function useHotwordsManager() {
     try {
       const [
         rawSetWords,
+        rawSetExtraWords,
         rawSetActive,
         rawCustomThemes,
         rawCustomThemeActive,
         legacyManualWords,
       ] = await Promise.all([
         getSetting<Record<string, unknown>>(BUILTIN_SET_WORDS_KEY, {}),
+        getSetting<Record<string, unknown>>(BUILTIN_SET_EXTRA_WORDS_KEY, {}),
         getSetting<Record<string, unknown>>(BUILTIN_SET_ACTIVE_KEY, {}),
         getSetting<unknown>(CUSTOM_THEMES_KEY, []),
         getSetting<Record<string, unknown>>(CUSTOM_THEME_ACTIVE_KEY, {}),
@@ -84,7 +101,9 @@ export function useHotwordsManager() {
       ])
 
       // 热词全部从本地 store 加载，不依赖远程服务器
-      const savedSetWords = normalizeBuiltinSetWords(rawSetWords)
+      const savedSetWords = normalizeBuiltinSetWords(rawSetWords, rawSetExtraWords)
+      // 判断「要不要首次落盘」只看默认词那份；合进自加词后它可能非空，会漏掉首次落盘
+      const storedSetWords = normalizeBuiltinSetWords(rawSetWords)
       const savedSetActive = normalizeBuiltinSetActive(rawSetActive)
 
       const nextSetWords: Record<string, string[]> = {}
@@ -138,7 +157,7 @@ export function useHotwordsManager() {
       })
       setHotwordsCache(composed)
 
-      const needPersistBuiltin = Object.keys(savedSetWords).length === 0 || Object.keys(savedSetActive).length === 0
+      const needPersistBuiltin = Object.keys(storedSetWords).length === 0 || Object.keys(savedSetActive).length === 0
       const needPersistCustom = normalizeCustomThemes(rawCustomThemes).length === 0
         || Object.keys(savedCustomThemeActive).length === 0
         || (nextCustomThemes.length > 0 && migratedManualWords.length > 0)
@@ -238,6 +257,52 @@ export function useHotwordsManager() {
     customThemes,
     hotwords,
     persistCustomThemeStates,
+    setSnapshot,
+    syncToBackend,
+    themeInputs,
+  ])
+
+  /** 往内置分类里加词。加进来的词和默认词一样受分类开关控制，「恢复默认」会把它们清掉。 */
+  const addWordsToBuiltinSet = useCallback(async (setKey: string) => {
+    if (!BUILTIN_SETS[setKey]) return
+    const inputKey = builtinInputKey(setKey)
+    const raw = (themeInputs[inputKey] || '').trim()
+    if (!raw) return
+
+    const current = builtinSetWords[setKey] || []
+    const toAdd = parseWordsInput(raw).filter((w) => !current.includes(w))
+    if (toAdd.length === 0) {
+      dispatch({ type: 'set_theme_input', themeId: inputKey, value: '' })
+      return
+    }
+
+    const nextWordsMap = { ...builtinSetWords, [setKey]: uniqueWords([...current, ...toAdd]) }
+    const currentAllSourceWords = collectAllSourceWords(builtinSetWords, customThemes)
+    const preservedWords = hotwords.filter((w) => !currentAllSourceWords.has(w))
+    const updated = composeHotwords(
+      preservedWords,
+      nextWordsMap,
+      builtinSetActive,
+      customThemes,
+      customThemeActive,
+    )
+
+    setSnapshot({
+      builtinSetWords: nextWordsMap,
+      hotwords: updated,
+      themeInputs: { ...themeInputs, [inputKey]: '' },
+    })
+
+    await Promise.all([
+      persistBuiltinWords(nextWordsMap),
+      syncToBackend(updated),
+    ])
+  }, [
+    builtinSetActive,
+    builtinSetWords,
+    customThemeActive,
+    customThemes,
+    hotwords,
     setSnapshot,
     syncToBackend,
     themeInputs,
@@ -390,7 +455,7 @@ export function useHotwordsManager() {
     })
 
     const tasks: Promise<unknown>[] = [syncToBackend(updated)]
-    if (setWordsChanged) tasks.push(setSetting(BUILTIN_SET_WORDS_KEY, nextSetWords))
+    if (setWordsChanged) tasks.push(persistBuiltinWords(nextSetWords))
     if (customThemesChanged) tasks.push(setSetting(CUSTOM_THEMES_KEY, nextThemes))
     await Promise.all(tasks)
   }, [builtinSetWords, customThemes, hotwords, setSnapshot, syncToBackend])
@@ -440,7 +505,7 @@ export function useHotwordsManager() {
     })
 
     await Promise.all([
-      setSetting(BUILTIN_SET_WORDS_KEY, nextWordsMap),
+      persistBuiltinWords(nextWordsMap),
       syncToBackend(updated),
     ])
   }, [
@@ -509,6 +574,7 @@ export function useHotwordsManager() {
     setThemeInput: (themeId: string, value: string) => dispatch({ type: 'set_theme_input', themeId, value }),
     addTheme,
     addWordsToTheme,
+    addWordsToBuiltinSet,
     removeTheme,
     moveTheme,
     toggleCustomTheme,

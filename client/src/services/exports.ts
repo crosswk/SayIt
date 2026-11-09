@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { getHotwords } from './api'
 import {
   BUILTIN_SET_ACTIVE_KEY,
+  BUILTIN_SET_EXTRA_WORDS_KEY,
   BUILTIN_SET_WORDS_KEY,
   CUSTOM_THEME_ACTIVE_KEY,
   CUSTOM_THEMES_KEY,
@@ -161,6 +162,7 @@ async function buildHotwordsPayload() {
   const [
     activeWords,
     builtinSetWords,
+    builtinSetExtraWords,
     builtinSetActive,
     customThemes,
     customThemeActive,
@@ -170,6 +172,7 @@ async function buildHotwordsPayload() {
   ] = await Promise.all([
     getHotwords().catch(() => [] as string[]),
     getSetting<Record<string, string[]>>(BUILTIN_SET_WORDS_KEY, {}),
+    getSetting<Record<string, string[]>>(BUILTIN_SET_EXTRA_WORDS_KEY, {}),
     getSetting<Record<string, boolean>>(BUILTIN_SET_ACTIVE_KEY, {}),
     getSetting(CUSTOM_THEMES_KEY, [] as unknown[]),
     getSetting<Record<string, boolean>>(CUSTOM_THEME_ACTIVE_KEY, {}),
@@ -182,6 +185,7 @@ async function buildHotwordsPayload() {
     exportedAt: new Date().toISOString(),
     activeWords,
     builtinSetWords,
+    builtinSetExtraWords,
     builtinSetActive,
     customThemes,
     customThemeActive,
