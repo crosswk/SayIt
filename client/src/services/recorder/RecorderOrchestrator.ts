@@ -1972,7 +1972,7 @@ export class RecorderOrchestrator {
       // peakAmplitude=0 且 silenceRatio=1 → 麦克风送来的是纯静音，与 ASR/网络无关。
       audioStats,
     })
-    this.overlayService.showThinking(audioDur, runId)
+    this.overlayService.showThinking(audioDur, runId, { ai: aiPolicy.allowCall })
     let insertionExtensions = 0
     const onProcessingTimeout = () => {
       if (this.state !== 'processing' || !this.isRunCurrent(runId)) return

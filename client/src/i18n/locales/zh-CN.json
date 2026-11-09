@@ -74,6 +74,7 @@
   "overlay.liveCaption": "实时识别",
   "overlay.listening": "正在聆听…",
   "overlay.processing": "处理中",
+  "overlay.processingAi": "AI 整理中",
   "overlay.genericError": "出错了",
   "overlay.warnLowVolume": "请靠近麦克风",
   "overlay.warnNoSignal": "未检测到声音",

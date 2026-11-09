@@ -500,6 +500,27 @@
   animation: overlay-attention-breathe 2.4s ease-in-out infinite;
 }
 
+/* 「AI 整理中」的星芒：每 1.8 秒轻轻闪一下（缩一点、转一点、暗一点）。只动这一枚图标，
+   不给胶囊加发光边或渐变 —— 胶囊颜色归用户的波形主题管。减少动态效果时由全局规则压掉。 */
+@keyframes overlay-ai-sparkle {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+
+  50% {
+    opacity: 0.55;
+    transform: scale(0.8) rotate(18deg);
+  }
+}
+
+.overlay-ai-sparkle {
+  transform-origin: center;
+  animation: overlay-ai-sparkle 1.8s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .overlay-wave-collapse {
     display: none;

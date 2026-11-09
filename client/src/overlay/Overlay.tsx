@@ -1,6 +1,6 @@
 import * as bridge from '../services/bridge'
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { AlertCircle, Copy, MicVocal, X } from 'lucide-react'
+import { AlertCircle, Copy, MicVocal, Sparkles, X } from 'lucide-react'
 import { SuccessCheck } from '@/components/ui/success-check'
 import { isLocale, setLocale } from '@/i18n'
 import { useT } from '@/i18n/useT'
@@ -61,6 +61,8 @@ interface OverlayPayload {
   cardToken?: number
   /** thinking 的变体：'late' = 已超时、仍在宽限期里等迟到结果。 */
   thinkingNote?: 'late'
+  /** thinking 时这次会走 AI 整理：文字换成「AI 整理中」并带星芒图标。 */
+  thinkingAi?: boolean
   errorMessage?: string
   warning?: string
   /** warning 的严重级别：warn=琥珀（声音小/未检测到），error=红色高警（麦克风已被静音） */
@@ -105,6 +107,7 @@ export default function Overlay() {
   const [cardToken, setCardToken] = useState(0)
   const [fallbackReason, setFallbackReason] = useState('')
   const [thinkingNote, setThinkingNote] = useState<'late' | null>(null)
+  const [thinkingAi, setThinkingAi] = useState(false)
   const [copyError, setCopyError] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [toastText, setToastText] = useState('')
@@ -220,8 +223,10 @@ export default function Overlay() {
         if (payload.state === 'thinking') {
           setThinkingDuration(calculateThinkingDuration(nextElapsedSec))
           setThinkingNote(payload.thinkingNote ?? null)
+          setThinkingAi(payload.thinkingAi === true)
         } else {
           setThinkingNote(null)
+          setThinkingAi(false)
         }
         if (payload.state !== 'failure') {
           // 离开失败态就把恢复结论清回 unknown，否则下一张卡片会先闪一下上一次的
@@ -389,7 +394,7 @@ export default function Overlay() {
   const pillMorphKey = recordingPhase
     ? `recording:${warningTone}:${warning}:${formatRecordingTimer(elapsedSec).countdown ? 1 : 0}`
     : state === 'thinking'
-      ? `thinking:${thinkingNote ?? ''}`
+      ? `thinking:${thinkingNote ?? ''}:${thinkingAi ? 'ai' : ''}`
       : state === 'toast'
         ? `toast:${toastTone}:${toastText}`
         : state === 'error'
@@ -879,8 +884,16 @@ export default function Overlay() {
                       </div>
                       <div className="overlay-progress-sheen absolute inset-y-0 left-0 rounded-full" aria-hidden />
                     </div>
-                    <span className="text-xs whitespace-nowrap" style={{ color: thinkingColor }}>
-                      {thinkingNote === 'late' ? t('overlay.awaitingLateResult') : t('overlay.processing')}
+                    {/* AI 整理时带一枚星芒。颜色跟处理中文字走（也就是用户的波形主题），
+                        不另配彩虹渐变：胶囊配色是用户自己选的，叠一层流行色会撞。
+                        「已超时仍在等」那句不带：那时要传达的是"慢了"，不是"在做 AI"。 */}
+                    <span className="flex items-center gap-1 text-xs whitespace-nowrap" style={{ color: thinkingColor }}>
+                      {thinkingAi && thinkingNote !== 'late' && (
+                        <Sparkles aria-hidden className="overlay-ai-sparkle h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
+                      )}
+                      {thinkingNote === 'late'
+                        ? t('overlay.awaitingLateResult')
+                        : t(thinkingAi ? 'overlay.processingAi' : 'overlay.processing')}
                     </span>
                     {/* 这里**故意**不写「Esc 取消」。Esc 取消的能力照常生效（原生钩子 +
                         escape-action，与本组件无关），只是这行提示不该出现在悬浮窗上：

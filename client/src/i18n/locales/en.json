@@ -74,6 +74,7 @@
   "overlay.liveCaption": "Live",
   "overlay.listening": "Listening…",
   "overlay.processing": "Processing",
+  "overlay.processingAi": "AI cleanup",
   "overlay.genericError": "Something went wrong",
   "overlay.warnLowVolume": "Move closer to the mic",
   "overlay.warnNoSignal": "No sound detected",
