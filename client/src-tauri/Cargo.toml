@@ -114,3 +114,10 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "unwind"
+
+# Windows 托盘右键菜单偶尔卡在屏幕上、点了没反应：tauri 2.10 带的 tray-icon 0.21.3 在右键按下时
+# 就弹菜单，TrackPopupMenu 之后也没补发 WM_NULL。vendor/tray-icon 是原版 0.21.3，只改了这两处
+# （搜 "SayIt patch"），和上游 tray-icon 0.23 的修法一样。升级到带 tray-icon 0.23 及以上的 tauri
+# （2.11 起）之后，删掉这一段和 vendor/tray-icon。
+[patch.crates-io]
+tray-icon = { path = "vendor/tray-icon" }
