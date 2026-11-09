@@ -7,7 +7,7 @@
 //! - `controlType` / `focusClass` / `automationId`：AXRole / AXSubrole / AXIdentifier
 //! - `hasCaret`：焦点元素有没有 AXSelectedTextRange
 
-use super::{sanitize_uia_text, tail_chars, AppContext, MonitorBounds, TextContext};
+use super::{sanitize_uia_text, tail_chars, text_diag, AppContext, MonitorBounds, TextContext};
 use crate::platform::macos::appkit;
 use crate::platform::macos::ax::{self, AxElement};
 use crate::platform::macos::ffi::CFRange;
@@ -25,8 +25,16 @@ pub fn capture_context_with_text(reason: &str, include_text_context: bool) -> Ap
         is_enabled: true,
         ..Default::default()
     };
+    let started = std::time::Instant::now();
+    // 请求了正文却在中途返回时，记下停在哪一步（原因码见 TextContextDiag）
+    let give_up = |ctx: &mut AppContext, result: &str| {
+        if include_text_context {
+            ctx.text_context_diag = Some(text_diag(result, None, started));
+        }
+    };
 
     let Some(app) = appkit::frontmost_app() else {
+        give_up(&mut ctx, "no_foreground");
         return ctx;
     };
     ctx.hwnd = app.pid.to_string();
@@ -41,9 +49,11 @@ pub fn capture_context_with_text(reason: &str, include_text_context: bool) -> Ap
 
     // 没有辅助功能授权时只能拿到应用级信息；可编辑判据会退回 bundle 白名单。
     if !ax::is_trusted() {
+        give_up(&mut ctx, "no_permission");
         return ctx;
     }
     let Some(app_element) = AxElement::application(app.pid) else {
+        give_up(&mut ctx, "uia_unavailable");
         return ctx;
     };
     app_element.set_timeout(ax::DEFAULT_TIMEOUT_SECS);
@@ -59,6 +69,7 @@ pub fn capture_context_with_text(reason: &str, include_text_context: bool) -> Ap
     }
 
     let Some(focused) = app_element.attr_element("AXFocusedUIElement") else {
+        give_up(&mut ctx, "no_focused_element");
         return ctx;
     };
     focused.set_timeout(ax::DEFAULT_TIMEOUT_SECS);
@@ -78,8 +89,24 @@ pub fn capture_context_with_text(reason: &str, include_text_context: bool) -> Ap
     ctx.is_read_only = value_settable.map(|settable| !settable);
 
     // 密码框是硬边界：即使开了上下文感知也绝不读取。
-    if include_text_context && !ctx.is_password && ctx.is_enabled {
-        ctx.text_context = selection.and_then(|range| capture_text_context(&focused, range));
+    if include_text_context {
+        if ctx.is_password {
+            give_up(&mut ctx, "password");
+        } else if !ctx.is_enabled {
+            give_up(&mut ctx, "element_disabled");
+        } else {
+            let text_started = std::time::Instant::now();
+            let outcome = match selection {
+                Some(range) => capture_text_context(&focused, range),
+                None => Err("no_caret"),
+            };
+            let (text, result, depth) = match outcome {
+                Ok(context) => (Some(context), "captured", Some(0)),
+                Err(reason) => (None, reason, None),
+            };
+            ctx.text_context = text;
+            ctx.text_context_diag = Some(text_diag(result, depth, text_started));
+        }
     }
     ctx
 }
@@ -92,9 +119,10 @@ fn utf16_slice(units: &[u16], start: usize, end: usize) -> String {
 
 /// 光标前 500 字、选区（超过 6000 字不发）、光标后 300 字。
 /// 优先用 AXStringForRange 只取需要的那一小段；不支持的控件退回读 AXValue 再切。
-fn capture_text_context(element: &AxElement, selection: CFRange) -> Option<TextContext> {
+/// 读不到时返回 TextContextDiag 的原因码（no_caret / empty）。
+fn capture_text_context(element: &AxElement, selection: CFRange) -> Result<TextContext, &'static str> {
     if selection.location < 0 || selection.length < 0 {
-        return None;
+        return Err("no_caret");
     }
     let location = selection.location as usize;
     let length = selection.length as usize;
@@ -156,9 +184,9 @@ fn capture_text_context(element: &AxElement, selection: CFRange) -> Option<TextC
     let text_before = tail_chars(&text_before.unwrap_or_default(), TEXT_BEFORE_LIMIT);
     let text_after: String = text_after.unwrap_or_default().chars().take(TEXT_AFTER_LIMIT).collect();
     if text_before.is_empty() && selected_text.is_empty() && text_after.is_empty() && !selection_truncated {
-        return None;
+        return Err("empty");
     }
-    Some(TextContext {
+    Ok(TextContext {
         source: "ax_selected_text_range".to_string(),
         text_before,
         selected_text,

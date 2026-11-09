@@ -1,4 +1,4 @@
-import type { TextContext } from '@/types/appContext'
+import type { TextContext, TextContextDiag } from '@/types/appContext'
 
 // i18n-allow-start: model instructions, not user-facing UI copy
 /** Built-in automatic polish mode used whenever context-aware writing has a text selection. */
@@ -52,6 +52,61 @@ export function usableTextContext(context: TextContext | null | undefined): Text
     selectionTruncated: false,
   }
   return normalized.textBefore || normalized.selectedText || normalized.textAfter ? normalized : null
+}
+
+/** 写进「Recording started」日志的那一段：读到没有、为什么没读到。 */
+export interface TextContextLog {
+  /**
+   * captured，或没用上的原因。前端自己判的几种：
+   * ai_off（AI 整理关着，按设计不读）、capture_error（调原生层失败）、
+   * no_diag（原生层没回诊断，旧二进制）、selection_too_long（选区超过 6000 字，按设计不发）、
+   * unusable（读到的内容清洗后为空）。其余原样来自原生层（见 context/mod.rs 的 TextContextDiag）。
+   */
+  result: string
+  kind?: 'selection' | 'caret'
+  source?: string
+  beforeLen?: number
+  selectedLen?: number
+  afterLen?: number
+  depth?: number
+  elapsedMs?: number
+}
+
+/**
+ * 每次录音都给出一个结论，没读到也要说原因。以前没读到时日志里一个字都没有，
+ * 分不清是没开、是空文档，还是那个软件读不了。
+ *
+ * **只记原因码和字数，绝不记正文**——这段会原样进 sayit.log。
+ * 返回 null = 用户没开上下文感知，不写这一段（没开的人每次录音多一行噪音没有意义）。
+ */
+export function describeTextContextForLog(input: {
+  featureOn: boolean
+  aiOn: boolean
+  captureFailed: boolean
+  diag?: TextContextDiag | null
+  raw?: TextContext | null
+  usable: TextContext | null
+}): TextContextLog | null {
+  if (!input.featureOn) return null
+  if (!input.aiOn) return { result: 'ai_off' }
+  if (input.captureFailed) return { result: 'capture_error' }
+  const diag = input.diag
+  const native = diag ? { depth: diag.depth, elapsedMs: diag.elapsedMs } : {}
+  if (input.usable) {
+    return {
+      result: 'captured',
+      kind: input.usable.selectedText ? 'selection' : 'caret',
+      source: input.usable.source,
+      beforeLen: input.usable.textBefore.length,
+      selectedLen: input.usable.selectedText.length,
+      afterLen: input.usable.textAfter.length,
+      ...native,
+    }
+  }
+  if (input.raw?.selectionTruncated) return { result: 'selection_too_long', source: input.raw.source, ...native }
+  if (!diag) return { result: 'no_diag' }
+  if (diag.result === 'captured') return { result: 'unusable', ...native }
+  return { result: String(diag.result || 'unknown').slice(0, 32), ...native }
 }
 
 /**

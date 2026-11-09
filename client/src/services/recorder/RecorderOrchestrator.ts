@@ -70,6 +70,7 @@ import { cleanActiveMicLabel, describeMicSource, micSourceChanged } from './micS
 import {
   CONTEXT_SELECTION_EDIT_PROMPT,
   CONTEXT_SELECTION_EDIT_PROMPT_SETTING_KEY,
+  describeTextContextForLog,
   normalizeContextSelectionEditPrompt,
   resolveContextAwareOutput,
   usableTextContext,
@@ -1486,6 +1487,7 @@ export class RecorderOrchestrator {
       preserveExistingOnFailure: true,
     })
     let activeAppContext: ActiveAppContext | null = null
+    let recordingContextFailed = false
     try {
       // AI is the only consumer of editor text. If cleanup is off, do not read the text even when
       // the preference remains enabled, so the privacy boundary matches actual behavior.
@@ -1504,8 +1506,18 @@ export class RecorderOrchestrator {
     } catch {
       activeAppContext = null
       this.run.cachedProbeResult = null
+      recordingContextFailed = true
     }
     const textContext = usableTextContext(activeAppContext?.textContext)
+    // 必须在下面 delete 之前算：选区太长的判据就在原始的 textContext 上
+    const textContextLog = describeTextContextForLog({
+      featureOn: this.settings.contextAwareWriting,
+      aiOn: this.settings.aiEnabled,
+      captureFailed: recordingContextFailed,
+      diag: activeAppContext?.textContextDiag,
+      raw: activeAppContext?.textContext,
+      usable: textContext,
+    })
     if (activeAppContext) {
       if (textContext) activeAppContext.textContext = textContext
       else delete activeAppContext.textContext
@@ -1531,13 +1543,9 @@ export class RecorderOrchestrator {
         ),
         summary: `${this.run.currentPromptResolution.summary} | Text context: ${textContext.selectedText ? 'selection' : 'caret'}`,
       }
-      addRuntimeEvent('info', 'recorder', 'Text context captured', {
-        source: textContext.source,
-        beforeLen: textContext.textBefore.length,
-        selectedLen: textContext.selectedText.length,
-        afterLen: textContext.textAfter.length,
-      })
     }
+    // 原来这里另发一条 'Text context captured'，但它不在落盘白名单里，sayit.log 里从来看不到；
+    // 而且只在读到时才有。现在读没读到都并进下面那条一定落盘的 'Recording started'。
 
     addRuntimeEvent('info', 'recorder', 'Recording started', {
       micId: this.settings.micId || 'default',
@@ -1552,6 +1560,8 @@ export class RecorderOrchestrator {
         promptRuleId: this.run.currentPromptResolution.matchedRule?.id,
         summary: this.run.currentPromptResolution.summary,
       },
+      // 只有原因码和字数，见 describeTextContextForLog。查「上下文感知没生效」grep 这个字段。
+      ...(textContextLog && { textContext: textContextLog }),
     })
     addRuntimeEvent('info', 'personalization', 'Prompt routing resolved', {
       appContext: this.summarizeAppContext(activeAppContext || null),

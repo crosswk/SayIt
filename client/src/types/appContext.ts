@@ -6,6 +6,13 @@ export interface TextContext {
   selectionTruncated: boolean
 }
 
+/** 原生层读正文的诊断，只有原因码和计数（原因码见 context/mod.rs 的 TextContextDiag）。 */
+export interface TextContextDiag {
+  result: string
+  depth?: number
+  elapsedMs: number
+}
+
 export interface ActiveAppContext {
   reason?: string
   timestamp?: number
@@ -39,4 +46,6 @@ export interface ActiveAppContext {
   isCurrentAppProcess?: boolean
   /** Only populated for a recording when context-aware writing is explicitly enabled. */
   textContext?: TextContext
+  /** 请求了正文时才有，读到或没读到都有。 */
+  textContextDiag?: TextContextDiag
 }

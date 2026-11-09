@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CONTEXT_SELECTION_EDIT_PROMPT,
+  describeTextContextForLog,
   normalizeContextSelectionEditPrompt,
   resolveContextAwareOutput,
   usableTextContext,
@@ -125,5 +126,59 @@ describe('context-aware writing prompt', () => {
       rawAsr: false,
       selectedEditWasApplied: false,
     })
+  })
+})
+
+describe('describeTextContextForLog', () => {
+  const base = { featureOn: true, aiOn: true, captureFailed: false, usable: null }
+
+  it('writes nothing when the feature is off, and says why when AI is off', () => {
+    expect(describeTextContextForLog({ ...base, featureOn: false })).toBeNull()
+    expect(describeTextContextForLog({ ...base, aiOn: false })).toEqual({ result: 'ai_off' })
+    expect(describeTextContextForLog({ ...base, captureFailed: true })).toEqual({ result: 'capture_error' })
+  })
+
+  it('logs lengths but never the text itself', () => {
+    const usable = usableTextContext({
+      source: 'text_pattern2',
+      textBefore: 'Secret project SayIt',
+      selectedText: '',
+      textAfter: 'tail',
+      selectionTruncated: false,
+    })
+    const log = describeTextContextForLog({
+      ...base,
+      diag: { result: 'captured', depth: 1, elapsedMs: 12 },
+      usable,
+    })
+    expect(log).toEqual({
+      result: 'captured',
+      kind: 'caret',
+      source: 'text_pattern2',
+      beforeLen: 20,
+      selectedLen: 0,
+      afterLen: 4,
+      depth: 1,
+      elapsedMs: 12,
+    })
+    expect(JSON.stringify(log)).not.toContain('Secret')
+    expect(JSON.stringify(log)).not.toContain('tail')
+  })
+
+  it('passes native reasons through and separates front-end drops', () => {
+    expect(describeTextContextForLog({ ...base, diag: { result: 'no_text_pattern', elapsedMs: 3 } }))
+      .toEqual({ result: 'no_text_pattern', elapsedMs: 3 })
+    expect(describeTextContextForLog({ ...base }))
+      .toEqual({ result: 'no_diag' })
+    expect(describeTextContextForLog({
+      ...base,
+      diag: { result: 'captured', depth: 0, elapsedMs: 5 },
+      raw: { source: 'text_pattern', textBefore: '', selectedText: '', textAfter: '', selectionTruncated: true },
+    })).toEqual({ result: 'selection_too_long', source: 'text_pattern', depth: 0, elapsedMs: 5 })
+    expect(describeTextContextForLog({
+      ...base,
+      diag: { result: 'captured', depth: 0, elapsedMs: 5 },
+      raw: { source: 'text_pattern', textBefore: '', selectedText: '', textAfter: '', selectionTruncated: false },
+    })).toEqual({ result: 'unusable', depth: 0, elapsedMs: 5 })
   })
 })
