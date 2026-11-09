@@ -868,6 +868,7 @@ fn main() {
             commands::audio_mute::mute_system_output,
             commands::audio_mute::restore_system_output,
             commands::audio_mute::get_mic_mute_state,
+            commands::audio_mute::list_capture_endpoints,
             // Permissions（macOS 的辅助功能 / 麦克风授权状态与引导）
             commands::permissions::get_platform_permissions,
             commands::permissions::request_accessibility_permission,

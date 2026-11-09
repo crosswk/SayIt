@@ -405,11 +405,13 @@ export class OverlayService {
     }))
   }
 
-  /** Show "no signal detected" warning（持续无输入意味着设备不可用，使用红色高警） */
-  showNoSignalWarning() {
+  /** Show "no signal detected" warning（持续无输入意味着设备不可用，使用红色高警）。
+   *  打开的是虚拟声卡时直接说出来：「未检测到声音」会把人引去查麦克风线和静音键，
+   *  而真正要做的是换设备。 */
+  showNoSignalWarning(options: { virtualMic?: boolean } = {}) {
     if (this.activeWarning) return
     void bridge.updateOverlay(this.listeningPayload({
-      warning: t('overlay.warnNoSignal'),
+      warning: t(options.virtualMic ? 'overlay.warnNoSignalVirtual' : 'overlay.warnNoSignal'),
       warningTone: 'error',
     }))
   }

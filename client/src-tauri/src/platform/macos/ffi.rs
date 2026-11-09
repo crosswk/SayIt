@@ -343,6 +343,7 @@ pub const kAudioDevicePropertyMute: AudioObjectPropertySelector = fourcc(b"mute"
 pub const kAudioDevicePropertyVolumeScalar: AudioObjectPropertySelector = fourcc(b"volm");
 pub const kAudioDevicePropertyStreams: AudioObjectPropertySelector = fourcc(b"stm#");
 pub const kAudioObjectPropertyName: AudioObjectPropertySelector = fourcc(b"lnam");
+pub const kAudioDevicePropertyTransportType: AudioObjectPropertySelector = fourcc(b"tran");
 
 #[link(name = "CoreAudio", kind = "framework")]
 extern "C" {

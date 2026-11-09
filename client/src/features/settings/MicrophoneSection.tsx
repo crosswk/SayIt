@@ -25,7 +25,10 @@ export default function MicrophoneSection({
   onCanvasRef,
   onMicChange,
   onTestMic,
+  virtualDefaultNote,
 }: {
+  /** 系统默认是虚拟声卡、录音会改用别的麦克风时的说明；空串不显示 */
+  virtualDefaultNote?: string
   mics: MediaDeviceInfo[]
   selectedMic: string
   testing: boolean
@@ -63,6 +66,9 @@ export default function MicrophoneSection({
                 {testing ? t('mic.testing') : t('mic.test')}
               </Button>
             </div>
+            {virtualDefaultNote && (
+              <p className="mt-2 text-xs text-muted-foreground">{virtualDefaultNote}</p>
+            )}
           </div>
 
           {testing && (

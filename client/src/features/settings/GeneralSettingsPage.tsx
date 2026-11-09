@@ -7,6 +7,7 @@ import { Info } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tooltip } from '@/components/ui/tooltip'
 import { listMicrophones, normalizeSelectedMicId } from '@/services/audio'
+import { resolveMicPlan, type MicPlan } from '@/services/micRouting'
 import { refreshRecorderSettings } from '@/services/recorder'
 import { getPresetShortcuts, getSetting, setSetting } from '@/services/store'
 import { getDefault } from '@/services/defaults'
@@ -54,6 +55,8 @@ export default function GeneralSettingsPage() {
   const [autoLaunch, setAutoLaunch] = useState(false)
   const [mics, setMics] = useState<MediaDeviceInfo[]>([])
   const [selectedMic, setSelectedMic] = useState('')
+  /** 跟随系统默认时录音实际会用哪个设备（系统默认是虚拟声卡时会换掉，见 micRouting.ts） */
+  const [micPlan, setMicPlan] = useState<MicPlan | null>(null)
   const [testing, setTesting] = useState(false)
   const [volumeLevel, setVolumeLevel] = useState<MicVolumeLevel>('idle')
   const [micError, setMicError] = useState('')
@@ -132,6 +135,16 @@ export default function GeneralSettingsPage() {
     return () => { cancelled = true }
   }, [])
 
+  // 设备列表到位后算一遍录音会用哪个麦克风：设置页的说明和「测试麦克风」都要跟录音走同一条判断
+  useEffect(() => {
+    if (mics.length === 0) return
+    let cancelled = false
+    resolveMicPlan(selectedMic, { webDevices: mics })
+      .then(({ plan }) => { if (!cancelled) setMicPlan(plan) })
+      .catch(() => { })
+    return () => { cancelled = true }
+  }, [mics, selectedMic])
+
   // 先切内存里的语言让界面立刻响应，再落库。失败时把选中项回滚到真实的持久化值，
   // 不留「按钮已高亮但其实没保存」这种假成功。
   const handleLanguageChange = async (next: LanguagePreference) => {
@@ -195,7 +208,9 @@ export default function GeneralSettingsPage() {
   const testMic = async () => {
     if (testing) return; setTesting(true); setVolumeLevel('idle'); setMicError('')
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: selectedMic ? { deviceId: { exact: selectedMic } } : true })
+      // 跟随系统默认、而默认是虚拟声卡时，测的应该是录音真正会用的那个麦克风
+      const testDeviceId = selectedMic || (micPlan?.reason === 'virtual_avoided' ? micPlan.deviceId : '')
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: testDeviceId ? { deviceId: { exact: testDeviceId } } : true })
       const context = new AudioContext(); const source = context.createMediaStreamSource(stream)
       const analyser = context.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.7
       source.connect(analyser); resetWaveform(); drawWaveform(analyser)
@@ -307,6 +322,9 @@ export default function GeneralSettingsPage() {
         {/* 麦克风排在「偏好设置」前面：它是录音链路的入口，选错设备什么都录不到；
             而下面那三个开关（提示音、静音外放、剪贴板保护）都是可选的锦上添花。 */}
         <MicrophoneSection mics={mics} selectedMic={selectedMic} testing={testing} volumeLevel={volumeLevel}
+          virtualDefaultNote={!selectedMic && micPlan?.reason === 'virtual_avoided'
+            ? t('mic.virtualDefaultNote', { virtual: micPlan.avoidedName, device: micPlan.chosenName })
+            : ''}
           onCanvasRef={(node) => { canvasRef.current = node }} onMicChange={handleMicChange} onTestMic={testMic} errorMessage={micError} />
 
         <Card>

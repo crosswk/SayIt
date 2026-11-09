@@ -97,6 +97,13 @@ pub fn device_name(id: AudioObjectID) -> Option<String> {
     }
 }
 
+/// 设备挂在哪种连接上（kAudioDevicePropertyTransportType）：内置 `bltn`、USB `usb `、
+/// 蓝牙 `blue`、纯软件驱动 `virt`……拿不到时返回 None。
+pub fn transport_type(id: AudioObjectID) -> Option<u32> {
+    let addr = address(kAudioDevicePropertyTransportType, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain);
+    unsafe { get_u32(id, &addr) }
+}
+
 /// 有输入流的设备（麦克风）。
 pub fn input_devices() -> Vec<AudioObjectID> {
     let addr = address(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain);
@@ -221,6 +228,7 @@ mod tests {
     fn fourcc_matches_coreaudio_constants() {
         assert_eq!(kAudioHardwarePropertyDefaultOutputDevice, 0x644F_7574); // 'dOut'
         assert_eq!(kAudioDevicePropertyMute, 0x6D75_7465); // 'mute'
+        assert_eq!(kAudioDevicePropertyTransportType, 0x7472_616E); // 'tran'
     }
 
     #[test]
@@ -230,6 +238,8 @@ mod tests {
             let _ = device_name(id);
             let _ = device_muted(id, false);
         }
-        let _ = input_devices();
+        for id in input_devices() {
+            let _ = transport_type(id);
+        }
     }
 }

@@ -22,6 +22,10 @@ export interface MicLevelHost {
   getActiveRunId(): number
   getSelectedMicId(): string
   cancelForMutedMic(runId: number): void
+  /** 本次录音打开的是虚拟设备时返回 true（用于把「未检测到声音」说得更具体）。拿不准返回 false。 */
+  isActiveMicVirtual?(): boolean
+  /** 本次录音第一次确认听到正常人声时调用一次。 */
+  onVoiceDetected?(): void
 }
 
 /**
@@ -69,7 +73,7 @@ export class MicLevelMonitor {
   private statsSilentFrames = 0
   private statsTotalFrames = 0
 
-  constructor(private readonly host: MicLevelHost) {}
+  constructor(private readonly host: MicLevelHost) { }
 
   /** 录音一开始（显示悬浮窗之前）就清掉上一次的静音线索。与 resetLevels 分开：两次中间夹着异步的静音预检查。 */
   resetMuteState() {
@@ -179,6 +183,12 @@ export class MicLevelMonitor {
       peakAmplitude: this.statsPeakAmplitude,
       silenceRmsThreshold: SILENCE_RMS_THRESHOLD,
     })
+  }
+
+  private markVoiceDetected() {
+    const first = !this.hasDetectedVoiceThisSession
+    this.hasDetectedVoiceThisSession = true
+    if (first) this.host.onVoiceDetected?.()
   }
 
   clearAutoCancelTimer() {
@@ -294,7 +304,7 @@ export class MicLevelMonitor {
       this.consecutiveSilentSamples = 0
       this.consecutiveNonVoicedSamples = 0
       this.quietRunSawSignal = false
-      this.hasDetectedVoiceThisSession = true
+      this.markVoiceDetected()
       return
     }
 
@@ -304,7 +314,7 @@ export class MicLevelMonitor {
       this.consecutiveVoicedSamples += sampleCount
       this.consecutiveNonVoicedSamples = 0
       if (this.consecutiveVoicedSamples >= CLEAR_VOICED) {
-        this.hasDetectedVoiceThisSession = true
+        this.markVoiceDetected()
         this.consecutiveSilentSamples = 0
         this.quietRunSawSignal = false
         if (this.currentVolumeWarning !== 'none') {
@@ -336,8 +346,9 @@ export class MicLevelMonitor {
     this.lastLowVolumeWarnAt = now
     this.currentVolumeWarning = kind
     if (kind === 'muted') {
-      addRuntimeEvent('warn', 'recorder', 'No microphone signal detected; device may be wrong or unavailable')
-      this.host.overlay.showNoSignalWarning()
+      const virtualMic = this.host.isActiveMicVirtual?.() === true
+      addRuntimeEvent('warn', 'recorder', 'No microphone signal detected; device may be wrong or unavailable', { virtualMic })
+      this.host.overlay.showNoSignalWarning({ virtualMic })
     } else {
       addRuntimeEvent('warn', 'recorder', 'Microphone volume is low')
       this.host.overlay.showLowVolumeWarning()

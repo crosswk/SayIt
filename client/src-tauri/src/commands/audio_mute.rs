@@ -201,6 +201,14 @@ unsafe fn get_device_friendly_name(
     device: &windows::Win32::Media::Audio::IMMDevice,
 ) -> Result<String, String> {
     use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
+    get_device_string_property(device, &PKEY_Device_FriendlyName)
+}
+
+#[cfg(windows)]
+unsafe fn get_device_string_property(
+    device: &windows::Win32::Media::Audio::IMMDevice,
+    key: &windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY,
+) -> Result<String, String> {
     use windows::Win32::System::Com::StructuredStorage::{
         PropVariantClear, PropVariantToStringAlloc,
     };
@@ -210,15 +218,15 @@ unsafe fn get_device_friendly_name(
         .OpenPropertyStore(STGM_READ)
         .map_err(|e| format!("OpenPropertyStore: {}", e))?;
     let mut value = store
-        .GetValue(&PKEY_Device_FriendlyName)
-        .map_err(|e| format!("GetValue(PKEY_Device_FriendlyName): {}", e))?;
+        .GetValue(key)
+        .map_err(|e| format!("GetValue({:?},{}): {}", key.fmtid, key.pid, e))?;
 
     let name_result = (|| -> Result<String, String> {
         let ptr = PropVariantToStringAlloc(&value)
             .map_err(|e| format!("PropVariantToStringAlloc: {}", e))?;
         let text = ptr
             .to_string()
-            .map_err(|e| format!("FriendlyName to_string: {}", e));
+            .map_err(|e| format!("property to_string: {}", e));
         CoTaskMemFree(Some(ptr.0.cast()));
         text
     })();
@@ -226,6 +234,196 @@ unsafe fn get_device_friendly_name(
         .map_err(|e| format!("PropVariantClear: {}", e));
     clear_result?;
     name_result
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 录音端点清单：前端靠它判断「系统默认」是不是虚拟设备
+// ─────────────────────────────────────────────────────────────────────────
+
+/// 一个处于启用状态的录音端点。
+///
+/// `name` 是 Windows 的端点友好名（`耳机式麦克风 (Plantronics Blackwire 5220 Series)`），
+/// 与 Chromium 的 MediaDeviceInfo.label 去掉结尾 `(vid:pid)` 后相同，前端按它对应。
+/// macOS 上是 CoreAudio 的设备名，与 WebKit 的 label 相同（静音查询也按它对应）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureEndpoint {
+    pub name: String,
+    /// 端点所属音频设备挂在哪条总线上：USB / HDAUDIO / INTELAUDIO / BTHENUM / ROOT ……
+    /// macOS 上是 CoreAudio 的连接类型四字符码：bltn / usb / blue / virt ……（只用于日志和排查）
+    pub enumerator: String,
+    pub is_virtual: bool,
+    pub is_default: bool,
+    pub is_default_communications: bool,
+}
+
+/// 按总线判断是不是虚拟设备，**不按设备名**。
+///
+/// 真实麦克风一定挂在某条硬件总线下（USB、HD Audio、英特尔智音、蓝牙）；VB-Cable、
+/// Voicemeeter 这类纯软件驱动没有硬件可挂，由系统直接在根上枚举，总线名是 `ROOT`。
+/// 本机实测：CABLE Output 是 ROOT，其余五个真实麦克风是 USB / INTELAUDIO / HDAUDIO。
+///
+/// 刻意没把 `SWD`（软件设备 API）算进来：它也是软件枚举，但没有实测样本，
+/// 误判的代价不对称 —— 把真麦克风当成虚拟会让 SayIt 跳过用户要用的设备，
+/// 漏判只是退回原来「跟随系统默认」的行为。
+/// 「立体声混音」这类回采端点挂在真实声卡下，这条判据认不出来；它默认是禁用的，暂不处理。
+#[cfg(any(windows, test))]
+fn is_virtual_enumerator(enumerator: &str) -> bool {
+    enumerator.trim().eq_ignore_ascii_case("ROOT")
+}
+
+/// macOS 的 kAudioDeviceTransportTypeVirtual（`virt`）。
+#[cfg(any(target_os = "macos", test))]
+const MAC_TRANSPORT_VIRTUAL: u32 = u32::from_be_bytes(*b"virt");
+
+/// macOS 版的同一条判据：按 CoreAudio 报的连接类型，不按名字。
+///
+/// BlackHole、Loopback、Teams / Zoom 自带的虚拟音频设备都报 `virt`；内置麦克风是 `bltn`、
+/// USB 是 `usb `、蓝牙是 `blue`、iPhone 连续互通是 `ccwl`。
+/// 聚合设备（`grup` / `fgrp`）刻意不算：它是用户在「音频 MIDI 设置」里自己把真实设备拼起来的，
+/// 选它多半是有意为之；拿不到类型（0）也不算，理由同 Windows 那条（误判比漏判代价大）。
+#[cfg(any(target_os = "macos", test))]
+fn is_virtual_transport(transport: u32) -> bool {
+    transport == MAC_TRANSPORT_VIRTUAL
+}
+
+/// 把四字符码转成可读文字，写进 `enumerator` 方便看日志。拿不到类型时是空串。
+#[cfg(any(target_os = "macos", test))]
+fn fourcc_text(code: u32) -> String {
+    if code == 0 {
+        return String::new();
+    }
+    code.to_be_bytes()
+        .iter()
+        .map(|b| if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '?' })
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn query_capture_endpoints_macos() -> Vec<CaptureEndpoint> {
+    use crate::platform::macos::audio;
+    let default_input = audio::default_device(true);
+    audio::input_devices()
+        .into_iter()
+        .filter_map(|id| {
+            let name = audio::device_name(id)?;
+            let transport = audio::transport_type(id).unwrap_or(0);
+            Some(CaptureEndpoint {
+                name,
+                enumerator: fourcc_text(transport),
+                is_virtual: is_virtual_transport(transport),
+                is_default: default_input == Some(id),
+                // macOS 没有单独的「默认通信设备」
+                is_default_communications: false,
+            })
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+unsafe fn endpoint_id(device: &windows::Win32::Media::Audio::IMMDevice) -> Option<String> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    let ptr = device.GetId().ok()?;
+    let id = ptr.to_string().ok();
+    CoTaskMemFree(Some(ptr.0.cast()));
+    id
+}
+
+#[cfg(windows)]
+unsafe fn query_capture_endpoints() -> Result<Vec<CaptureEndpoint>, String> {
+    use windows::core::GUID;
+    use windows::Win32::Media::Audio::{
+        eCapture, eCommunications, eConsole, IMMDeviceEnumerator, MMDeviceEnumerator,
+        DEVICE_STATE_ACTIVE,
+    };
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY;
+
+    // PKEY_Device_EnumeratorName。windows crate 只以 DEVPROPKEY 形式导出它，
+    // IPropertyStore 要的是 PROPERTYKEY，两者 fmtid/pid 相同，这里直接写出来。
+    const PKEY_DEVICE_ENUMERATOR_NAME: PROPERTYKEY = PROPERTYKEY {
+        fmtid: GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
+        pid: 24,
+    };
+
+    let co_init_result = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+    let need_co_uninit = co_init_result.is_ok();
+
+    let result = (|| -> Result<Vec<CaptureEndpoint>, String> {
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER)
+                .map_err(|e| format!("CoCreateInstance MMDeviceEnumerator: {}", e))?;
+        let default_console = enumerator
+            .GetDefaultAudioEndpoint(eCapture, eConsole)
+            .ok()
+            .and_then(|device| endpoint_id(&device));
+        let default_comms = enumerator
+            .GetDefaultAudioEndpoint(eCapture, eCommunications)
+            .ok()
+            .and_then(|device| endpoint_id(&device));
+
+        let devices = enumerator
+            .EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)
+            .map_err(|e| format!("EnumAudioEndpoints(eCapture): {}", e))?;
+        let count = devices
+            .GetCount()
+            .map_err(|e| format!("IMMDeviceCollection.GetCount: {}", e))?;
+
+        let mut endpoints = Vec::new();
+        for index in 0..count {
+            let Ok(device) = devices.Item(index) else { continue };
+            let Ok(name) = get_device_friendly_name(&device) else { continue };
+            let enumerator_name =
+                get_device_string_property(&device, &PKEY_DEVICE_ENUMERATOR_NAME).unwrap_or_default();
+            let id = endpoint_id(&device);
+            endpoints.push(CaptureEndpoint {
+                name,
+                is_virtual: is_virtual_enumerator(&enumerator_name),
+                enumerator: enumerator_name,
+                is_default: id.is_some() && id == default_console,
+                is_default_communications: id.is_some() && id == default_comms,
+            });
+        }
+        Ok(endpoints)
+    })();
+
+    if need_co_uninit {
+        CoUninitialize();
+    }
+
+    result
+}
+
+/// 列出启用中的录音端点，标出哪个是系统默认、哪个是虚拟设备。
+/// 失败或其他平台一律返回空表：前端拿到空表就照旧跟随系统默认，不做任何替换。
+#[tauri::command]
+pub fn list_capture_endpoints() -> Vec<CaptureEndpoint> {
+    #[cfg(windows)]
+    unsafe {
+        match query_capture_endpoints() {
+            Ok(endpoints) => endpoints,
+            Err(e) => {
+                crate::commands::system::write_log_line(&format!(
+                    "[RUST] [audio_devices] list_capture_endpoints failed: {}",
+                    e
+                ));
+                Vec::new()
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        query_capture_endpoints_macos()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        Vec::new()
+    }
 }
 
 /// 查询采集设备的静音状态。
@@ -386,7 +584,33 @@ fn query_mic_mute_macos(label: Option<&str>) -> MicMuteState {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_mic_label;
+    use super::{fourcc_text, is_virtual_enumerator, is_virtual_transport, normalize_mic_label};
+
+    #[test]
+    fn only_virt_transport_counts_as_virtual_on_macos() {
+        let code = |s: &[u8; 4]| u32::from_be_bytes(*s);
+        assert!(is_virtual_transport(code(b"virt")));
+        // 内置、USB、蓝牙、连续互通、聚合设备、拿不到类型：都不算
+        for real in [b"bltn", b"usb ", b"blue", b"ccwl", b"grup", b"fgrp"] {
+            assert!(!is_virtual_transport(code(real)));
+        }
+        assert!(!is_virtual_transport(0));
+        assert_eq!(fourcc_text(code(b"usb ")), "usb");
+        assert_eq!(fourcc_text(code(b"virt")), "virt");
+        assert_eq!(fourcc_text(0), "");
+    }
+
+    #[test]
+    fn only_root_enumerated_endpoints_count_as_virtual() {
+        // 本机实测值：CABLE Output 是 ROOT，真实麦克风是 USB / INTELAUDIO / HDAUDIO。
+        assert!(is_virtual_enumerator("ROOT"));
+        assert!(is_virtual_enumerator(" root "));
+        for real in ["USB", "INTELAUDIO", "HDAUDIO", "BTHENUM", "BTHHFENUM", ""] {
+            assert!(!is_virtual_enumerator(real), "{real} must not be treated as virtual");
+        }
+        // SWD 刻意不算（见 is_virtual_enumerator 的注释）
+        assert!(!is_virtual_enumerator("SWD"));
+    }
 
     #[test]
     fn browser_route_prefix_does_not_change_endpoint_identity() {
