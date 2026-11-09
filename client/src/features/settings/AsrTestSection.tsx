@@ -138,14 +138,30 @@ export default function AsrTestSection({ workMode }: { workMode: WorkMode }) {
       } else {
         // 服务器模式
         const { getWSUrl } = await import('@/services/runtimeConfig')
+        const { getClientRuntimeInfo } = await import('@/services/bridge')
         const wsUrl = getWSUrl()
+        const clientMeta = await getClientRuntimeInfo().catch(() => null)
 
         const r = await new Promise<{ text: string; asrMs: number }>((resolve, reject) => {
           const timeout = setTimeout(() => { try { sock.close() } catch { } reject(new Error(t('asrTest.timeout'))) }, 30000)
           const sock = new WebSocket(wsUrl)
           sock.binaryType = 'arraybuffer'
           sock.onopen = () => {
-            sock.send(JSON.stringify({ cmd: 'start', disable_ai: true }))
+            // 服务端准入（guard admission）要求 start 带 device_id / client_version、source 只认
+            // live / history_reprocess，否则回「连接异常，请使用最新版 SayIt 客户端」并断开。
+            // 用 history_reprocess 而不是 live：测试音频是一次性推完的，live 会被推流检测拦，
+            // stop 也得带按键时长；这和历史记录重新识别是同一种请求，按同一条道走。
+            const startMsg: Record<string, unknown> = { cmd: 'start', source: 'history_reprocess', disable_ai: true }
+            if (clientMeta) {
+              startMsg.client_meta = {
+                user_id: clientMeta.userId,
+                device_id: clientMeta.deviceId,
+                client_version: clientMeta.clientVersion,
+                platform: clientMeta.platform,
+                os_version: clientMeta.osVersion,
+              }
+            }
+            sock.send(JSON.stringify(startMsg))
             // 分块发送 PCM（每块 3200 字节 = 100ms @16kHz 16bit mono）
             const chunkSize = 3200
             for (let i = 0; i < pcmBytes.length; i += chunkSize) {
