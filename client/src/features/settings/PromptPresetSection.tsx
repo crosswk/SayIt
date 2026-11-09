@@ -247,7 +247,10 @@ export default function PromptPresetSection({
           {presets.map((preset) => {
             const customPresets = presets.filter((item) => !item.builtin)
             const customIndex = customPresets.findIndex((item) => item.id === preset.id)
-            const canMove = !preset.builtin && customPresets.length > 1
+            // 只有自定义模式能拖，但一旦出现拖拽柄，内置行也要留出同宽的位置，
+            // 否则自定义行的单选圈和名字会比内置行整体右移一截，上下对不齐。
+            const sortEnabled = customPresets.length > 1
+            const canMove = !preset.builtin && sortEnabled
             const presetName = promptPresetDisplayName(preset)
             return (
               <div
@@ -261,11 +264,16 @@ export default function PromptPresetSection({
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-3">
+                    {/* -ml-1 抵掉手柄自带的 p-1，让图标左缘贴住卡片内边距，柄列不至于太宽 */}
                     {canMove && (
                       <DragHandle
+                        className="-ml-1"
                         {...presetSortable.handleProps(customIndex, t('promptPreset.drag', { name: presetName }))}
                         onClick={(event) => event.stopPropagation()}
                       />
+                    )}
+                    {!canMove && sortEnabled && (
+                      <div aria-hidden className="-ml-1 box-content h-3.5 w-3.5 shrink-0 p-1" />
                     )}
                     <div
                       className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${activePresetId === preset.id ? 'border-primary' : 'border-muted-foreground/40'
