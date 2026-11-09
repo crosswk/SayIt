@@ -152,6 +152,124 @@
   }
 }
 
+/* 选中底色滑块（useSlidingIndicator.ts）。位置和尺寸由脚本直接写；这里只管"怎么动"。
+   初始透明：脚本量到选中项之前它不该出现在 0,0。margin 清零是给 space-y-* 容器用的 ——
+   那个工具类会给兄弟元素加 margin-top，落在绝对定位的滑块上就是整体下移 4px。 */
+.sliding-indicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  margin: 0 !important;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    transform 300ms cubic-bezier(0.32, 0.72, 0, 1),
+    width 300ms cubic-bezier(0.32, 0.72, 0, 1),
+    height 300ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 150ms ease-out;
+}
+
+/* 弹窗进出场（ui/modal.tsx）。进场 200ms：遮罩淡入，面板从 97% 放大、略微上浮到位；
+   出场 140ms 只淡出加一点点缩小，比进场快 —— 关弹窗是用户已经做完决定，不该让他等。
+   出场作用在卸载时留下的复制品上，见 modal.tsx 的 useExitGhost。 */
+@keyframes modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes modal-backdrop-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-panel-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.modal-backdrop-enter {
+  animation: modal-backdrop-in 160ms ease-out both;
+}
+
+.modal-panel-enter {
+  animation: modal-panel-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.modal-backdrop-exit {
+  animation: modal-backdrop-out 140ms ease-in both;
+}
+
+.modal-panel-exit {
+  animation: modal-panel-out 140ms ease-in both;
+}
+
+/* 成功对勾（ui/success-check.tsx）：从短边起笔画出来，同时轻轻弹一下。
+   lucide 的 Check 路径是 "M20 6 9 17l-5-5"，起点在右上，所以用负的 dashoffset 让描线
+   从路径末端（左边短边）往回长 —— 看起来才是手写对勾的笔顺。路径总长约 22.6，取 24。 */
+@keyframes success-check-draw {
+  from {
+    stroke-dashoffset: -24;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes success-check-pop {
+  0% {
+    transform: scale(0.7);
+  }
+
+  60% {
+    transform: scale(1.12);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.success-check {
+  animation: success-check-pop 320ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+.success-check path,
+.success-check polyline {
+  stroke-dasharray: 24;
+  animation: success-check-draw 280ms cubic-bezier(0.65, 0, 0.35, 1) 40ms both;
+}
+
 /* Surface 单独入场，内容根节点不重挂载，避免整层透明度闪变。 */
 @keyframes overlay-pill-surface-enter {
   from {
@@ -243,6 +361,159 @@
 .overlay-pill-recording-listening .overlay-recording-content {
   opacity: 1;
   clip-path: inset(0);
+}
+
+/* 胶囊换内容时（录音 → 处理中 → 提示），新内容从轻微模糊里浮出来，同时胶囊宽度
+   弹簧过渡（pillMorph.ts）。延迟 50ms 是给宽度先动起来：先看到形状在变，再看到字，
+   读起来是"同一颗胶囊变了样"，而不是"换了一颗"。模糊只有 4px、只在这几十像素里，
+   代价可以忽略。 */
+@keyframes overlay-pill-content-enter {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1);
+  }
+}
+
+.overlay-pill-content-enter {
+  /* 延迟由 pillMorph.ts 按变宽/变窄写进 --pill-content-delay */
+  animation: overlay-pill-content-enter 260ms cubic-bezier(0.16, 1, 0.3, 1) var(--pill-content-delay, 50ms) both;
+  transform-origin: center;
+}
+
+/* 录音 → 处理中：最后一帧波形压平、向左并拢成进度条那根线，然后淡出，真的进度条在同一处
+   接上（Overlay.tsx 把处理中内容的入场延后到 170ms）。波形和进度条都从胶囊左内边距起笔，
+   所以只需横向缩、不需要位移。--collapse-scale = 进度条宽 / 波形行宽，由 Overlay.tsx 算好。 */
+@keyframes overlay-wave-collapse-row {
+  0% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+
+  65% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: scaleX(var(--collapse-scale, 0.5));
+    opacity: 0;
+  }
+}
+
+@keyframes overlay-wave-collapse-bar {
+  from {
+    height: var(--from-h, 3px);
+  }
+
+  to {
+    height: 4px;
+  }
+}
+
+.overlay-wave-collapse {
+  transform-origin: left center;
+  animation: overlay-wave-collapse-row 320ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.overlay-wave-collapse-bar {
+  animation: overlay-wave-collapse-bar 200ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* 处理中进度条。时长是按录音长度**估**的，估短了以前就满格停住，像卡死了。现在分三段：
+   ① 估计时长内走到 86%；② 之后极慢地往 99% 蹭（嵌套的第二层 scaleX，乘起来 0.86 × 1.15）；
+   ③ 同时开始一道流光扫过，告诉用户"还在干活"。两层 scaleX 都以左端为原点，所以直接相乘。 */
+@keyframes overlay-progress-estimate {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(0.86);
+  }
+}
+
+@keyframes overlay-progress-creep {
+  from {
+    transform: scaleX(1);
+  }
+
+  to {
+    transform: scaleX(1.15);
+  }
+}
+
+@keyframes overlay-progress-sheen {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(250%);
+  }
+}
+
+.overlay-progress-estimate {
+  transform-origin: left center;
+  animation: overlay-progress-estimate var(--estimate, 3s) cubic-bezier(0.25, 0.6, 0.3, 1) both;
+}
+
+.overlay-progress-creep {
+  transform-origin: left center;
+  animation: overlay-progress-creep 45s cubic-bezier(0.1, 0.6, 0.3, 1) var(--estimate, 3s) both;
+}
+
+.overlay-progress-sheen {
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  transform: translateX(-100%);
+  animation: overlay-progress-sheen 1.6s ease-in-out var(--estimate, 3s) infinite;
+}
+
+/* 录音中的提示（声音太小、麦克风静音、最后 10 秒）。以前是 Tailwind 的 animate-pulse：一出现就
+   直接亮在那里，再 50% 透明度来回闪，黑底小胶囊上显得急躁。现在先等胶囊宽度弹开（150ms），
+   从轻微模糊里出来，之后只做幅度更小、更慢的呼吸。 */
+@keyframes overlay-attention-breathe {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.62;
+  }
+}
+
+.overlay-attention {
+  animation:
+    overlay-pill-content-enter 260ms cubic-bezier(0.16, 1, 0.3, 1) 150ms both,
+    overlay-attention-breathe 2.4s ease-in-out 700ms infinite;
+}
+
+.overlay-breathe {
+  animation: overlay-attention-breathe 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-wave-collapse {
+    display: none;
+  }
+
+  @keyframes overlay-pill-content-enter {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
 }
 
 /* 流式字幕的文字光标：只改透明度、不缩放不移动，柔和的打字机竖线 */

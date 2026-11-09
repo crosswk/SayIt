@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Trash2, VolumeX, Star, Play, Pause, RotateCcw, Loader2, Download, Check, Copy, X, FolderOpen, Pencil, ChevronDown, ChevronUp, SpellCheck } from 'lucide-react'
+import { Trash2, VolumeX, Star, Play, Pause, RotateCcw, Loader2, Download, Copy, X, FolderOpen, Pencil, ChevronDown, ChevronUp, SpellCheck } from 'lucide-react'
 import { Tooltip } from '@/components/ui/tooltip'
+import { SuccessCheck } from '@/components/ui/success-check'
 import { Card, CardContent } from '@/components/ui/card'
 import { type HistoryRecord } from '@/services/store'
 import * as bridge from '@/services/bridge'
@@ -314,7 +315,7 @@ function HistoryItem({
                   aria-label={t('record.copy')}
                 >
                   {copied ? (
-                    <Check className="h-3.5 w-3.5 text-success" />
+                    <SuccessCheck className="h-3.5 w-3.5 text-success" />
                   ) : (
                     <Copy className="h-3.5 w-3.5 text-muted-foreground" />
                   )}
@@ -449,7 +450,7 @@ function HistoryItem({
                           {downloading ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                           ) : downloadStatus === 'ok' ? (
-                            <Check className="h-3.5 w-3.5 text-success" />
+                            <SuccessCheck className="h-3.5 w-3.5 text-success" />
                           ) : downloadStatus === 'fail' ? (
                             <X className="h-3.5 w-3.5 text-destructive" />
                           ) : (

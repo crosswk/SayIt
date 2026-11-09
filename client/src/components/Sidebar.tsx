@@ -1,5 +1,6 @@
-import { useEffect, useSyncExternalStore } from 'react'
-import { NavLink } from 'react-router-dom'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
+import { useSlidingIndicator } from '@/components/ui/useSlidingIndicator'
 import { Home, Clock, BookOpen, Settings, Info, Wifi, WifiOff, Cpu, Cloud, AudioLines, Sparkles, Wand2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -54,8 +55,10 @@ function NavItem({
       to={to}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-          isActive ? 'bg-sidebar-item-active font-medium text-sidebar-text-active' : 'text-sidebar-text hover:bg-sidebar-item-hover hover:text-sidebar-text-active',
+          // 选中底色由组里的滑块画（见 Sidebar 里的 useSlidingIndicator），这里只管文字。
+          // relative z-[1]：滑块是组里最后一个子元素（space-y 的缘故），不抬一层会盖住文字。
+          'relative z-[1] flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+          isActive ? 'font-medium text-sidebar-text-active' : 'text-sidebar-text hover:bg-sidebar-item-hover hover:text-sidebar-text-active',
         )
       }
     >
@@ -85,8 +88,8 @@ function IconOnlyNavItem({
         aria-label={label}
         className={({ isActive }) =>
           cn(
-            'flex items-center justify-center rounded-lg p-2 transition-colors',
-            isActive ? 'bg-sidebar-item-active text-sidebar-text-active' : 'text-sidebar-text hover:bg-sidebar-item-hover hover:text-sidebar-text-active',
+            'relative z-[1] flex items-center justify-center rounded-lg p-2 transition-colors',
+            isActive ? 'text-sidebar-text-active' : 'text-sidebar-text hover:bg-sidebar-item-hover hover:text-sidebar-text-active',
           )
         }
       >
@@ -114,9 +117,13 @@ function FooterIcons() {
   const update = useUpdateState()
   const updateReady = hasPendingUpdate(update)
   const nextVersion = update.pending?.version || ''
+  const { pathname } = useLocation()
+  const groupRef = useRef<HTMLDivElement>(null)
+  const indicatorRef = useSlidingIndicator(groupRef, pathname, { activeSelector: '[aria-current="page"]' })
 
   return (
-    <div className="flex items-center gap-1">
+    <div ref={groupRef} className="relative flex items-center gap-1">
+      <span ref={indicatorRef} aria-hidden className="sliding-indicator rounded-lg bg-sidebar-item-active" />
       {footerNavItems.map(({ to, icon, labelKey }) => {
         const highlight = updateReady && to === '/about'
         return (
@@ -198,6 +205,10 @@ function ModeIndicator() {
 
 export default function Sidebar() {
   const t = useT()
+  const { pathname } = useLocation()
+  const navGroupRef = useRef<HTMLDivElement>(null)
+  // 当前页在底部那排（设置 / 关于）时这一组没有选中项，滑块淡出；从那边切回来时原地出现，不跨组滑。
+  const navIndicatorRef = useSlidingIndicator(navGroupRef, pathname, { activeSelector: '[aria-current="page"]' })
   return (
     <nav className="flex w-48 flex-col border-r border-sidebar-border bg-sidebar py-4">
       {/* mac：标题栏左边归系统红绿灯，图标和名字放在侧栏最上面、「首页」上方（Windows 的在标题栏里）。
@@ -209,7 +220,7 @@ export default function Sidebar() {
           <span className="text-sm text-sidebar-text-active" style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, letterSpacing: '0.01em' }}>SayIt</span>
         </div>
       )}
-      <div className="flex-1 space-y-1 px-3">
+      <div ref={navGroupRef} className="relative flex-1 space-y-1 px-3">
         {dailyNavItems.map(({ to, icon, labelKey }) => (
           <NavItem key={to} to={to} icon={icon} label={t(labelKey)} />
         ))}
@@ -220,6 +231,8 @@ export default function Sidebar() {
         {configNavItems.map(({ to, icon, labelKey }) => (
           <NavItem key={to} to={to} icon={icon} label={t(labelKey)} />
         ))}
+        {/* 滑块放最后：放第一个的话 space-y-1 会给"首页"加一个 margin-top，整列下移 4px。 */}
+        <span ref={navIndicatorRef} aria-hidden className="sliding-indicator rounded-lg bg-sidebar-item-active" />
       </div>
 
       <div className="space-y-3 px-3 pt-4">

@@ -1,6 +1,7 @@
 import * as bridge from '../services/bridge'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Copy, Check, MicVocal, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { AlertCircle, Copy, MicVocal, X } from 'lucide-react'
+import { SuccessCheck } from '@/components/ui/success-check'
 import { isLocale, setLocale } from '@/i18n'
 import { useT } from '@/i18n/useT'
 import { addRuntimeEvent } from '../services/debugLog'
@@ -17,6 +18,7 @@ import {
   type CustomWaveColors,
   type OverlayWaveTheme,
 } from '@/lib/overlayWaveColors'
+import { prefersReducedMotion, usePillMorph } from './pillMorph'
 
 /**
  * `blank` 什么都不渲染，只在**隐藏窗口之前**用一下。
@@ -116,6 +118,7 @@ export default function Overlay() {
   const [micSourceMode, setMicSourceMode] = useState<'auto' | 'fixed' | null>(null)
   const [micSourceLabel, setMicSourceLabel] = useState('')
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const pillRef = useRef<HTMLDivElement | null>(null)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /**
    * 给 Ctrl+C 用的当前卡片快照。
@@ -377,6 +380,27 @@ export default function Overlay() {
   }, [])
 
   const recordingPhase = state === 'waiting' || state === 'listening'
+  // 胶囊"换了一种内容"的标识。waiting/listening 共用一个：录音中的逐帧刷新不算换内容，
+  // 两者之间的展开另有 clip-path 负责。提示类把文案也算进去，连着两条不同的提示同样要变形。
+  // 录音中出现/撤掉警告、进入倒计时都会让波形让出条数（见下面的 barBudget），宽度跟着变，
+  // 所以它们算进宽度的 key；但录音内容本身不重挂，contentKey 仍是同一个。
+  // 「处理中」→「仍在等待结果」同理：宽度要弹，内容不能重挂（进度条会从零重来）。
+  const pillContentKey = recordingPhase ? 'recording' : state === 'thinking' ? 'thinking' : null
+  const pillMorphKey = recordingPhase
+    ? `recording:${warningTone}:${warning}:${formatRecordingTimer(elapsedSec).countdown ? 1 : 0}`
+    : state === 'thinking'
+      ? `thinking:${thinkingNote ?? ''}`
+      : state === 'toast'
+        ? `toast:${toastTone}:${toastText}`
+        : state === 'error'
+          ? `error:${errorMessage}`
+          : state
+  const { animateContent: animatePillContent, enteredFrom: pillEnteredFrom } = usePillMorph(
+    pillRef,
+    pillMorphKey,
+    presentationId,
+    pillContentKey ?? pillMorphKey,
+  )
   const visuallyListening = state === 'listening' && recordingVisualPhase === 'listening'
   const showStreamingBubble = visuallyListening && (streamingOn || streamingText.trim().length > 0)
   const hasStreamingText = streamingText.trim().length > 0
@@ -419,6 +443,27 @@ export default function Overlay() {
   const timerColor = inCountdown
     ? (urgent ? '#fb923c' : '#fbbf24')
     : themeTimerColor
+
+  // 「波形收成进度条」要用录音结束前的最后一帧波形。离开录音的那一刻 bars 已经被清成 3，
+  // 所以只能在录音中逐帧记下来；静音高警时画的是红字不是波形，那就没有可收的东西。
+  const waveSnapshotRef = useRef<{ heights: number[]; colors: string[] } | null>(null)
+  if (visuallyListening) {
+    waveSnapshotRef.current = warning && warningTone === 'error'
+      ? null
+      : { heights: visibleBars, colors: palette }
+  } else if (state === 'waiting') {
+    // 新一次录音开始就清掉。否则按一下就松（还没画出波形）时，收进进度条的会是上一次的波形。
+    waveSnapshotRef.current = null
+  }
+  const waveSnapshot = waveSnapshotRef.current
+  // 减少动态效果时不收：全局规则会把动画压成 0.01ms，但处理中内容的 170ms 延迟还在，
+  // 等于白白让文字晚出来。
+  const showWaveCollapse = state === 'thinking' && pillEnteredFrom === 'recording' && waveSnapshot !== null
+    && waveSnapshot.heights.length > 0 && !prefersReducedMotion()
+  // 进度条宽 48px（w-12）。波形行宽 = 条宽 2.5px × n + 间距 2px × (n - 1)。
+  const waveCollapseScale = waveSnapshot && waveSnapshot.heights.length > 0
+    ? 48 / (waveSnapshot.heights.length * 2.5 + (waveSnapshot.heights.length - 1) * 2)
+    : 1
 
   const handleCopyFallback = async (source: 'button' | 'hotkey' = 'button') => {
     if (!fallbackText) return
@@ -528,7 +573,7 @@ export default function Overlay() {
                   : 'border-white/10 bg-white/10 text-white/90 hover:bg-white/20'
                   }`}
               >
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copied ? <SuccessCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               </button>
               <button
                 type="button"
@@ -697,6 +742,7 @@ export default function Overlay() {
               传到波形上（bars 的 min-w-0），胶囊本身始终保持完整的胶囊形状。
               用 100vw 而不是 max-w-full：父层宽度也是按内容算的，撑不出约束。 */}
           <div
+            ref={pillRef}
             className={`relative flex max-w-[calc(100vw-8px)] items-center overflow-hidden whitespace-nowrap rounded-full px-4 py-2${recordingPhase && recordingVisualPhase === 'preparing' ? ' overlay-pill-recording-waiting' : ''}${recordingPhase && recordingVisualPhase === 'listening' ? ' overlay-pill-recording-listening' : ''}`}
             style={{ minHeight: '38px' }}
           >
@@ -709,6 +755,33 @@ export default function Overlay() {
                 borderColor: 'var(--overlay-border)',
               }}
             />
+            {/* 最后一帧波形，压平并拢成进度条后淡出（index.css 的 overlay-wave-collapse）。
+                放在处理中内容**外面**：那一层带着入场的透明度动画，放进去会一起被藏住。
+                left 16px = 胶囊 px-4，与波形、进度条的起笔对齐；收完留在 DOM 里是透明的，不碍事。 */}
+            {showWaveCollapse && waveSnapshot && (
+              <div
+                aria-hidden
+                className="overlay-wave-collapse pointer-events-none absolute z-[1] flex items-center gap-[2px]"
+                style={{
+                  left: '16px',
+                  top: '50%',
+                  height: '20px',
+                  marginTop: '-10px',
+                  '--collapse-scale': String(waveCollapseScale),
+                } as CSSProperties}
+              >
+                {waveSnapshot.heights.map((height, index) => {
+                  const h = `${Math.min(18, Math.max(3, height))}px`
+                  return (
+                    <span
+                      key={index}
+                      className="overlay-wave-collapse-bar block w-[2.5px] rounded-full"
+                      style={{ backgroundColor: waveSnapshot.colors[index], height: h, '--from-h': h } as CSSProperties}
+                    />
+                  )
+                })}
+              </div>
+            )}
             {recordingPhase ? (
               <div
                 className="overlay-recording-stage relative z-[1] min-w-0"
@@ -731,7 +804,8 @@ export default function Overlay() {
                     // 静音高警：波形此时是平的、无意义，直接在胶囊里居中显示红字，
                     // 既更醒目、也避免波形+长文字撑破固定宽度把胶囊圆角裁掉。
                     <div
-                      className="flex items-center whitespace-nowrap px-1 text-xs font-semibold text-red-500 animate-pulse"
+                      key={warning}
+                      className="overlay-attention flex items-center whitespace-nowrap px-1 text-xs font-semibold text-red-500"
                       style={{ height: '20px' }}
                     >
                       {warning}
@@ -763,14 +837,14 @@ export default function Overlay() {
                           以前条件里带 !warning，导致 4 分钟提示一出现，剩下一整分钟都看不到秒数。 */}
                       {showDuration && (
                         <span
-                          className={`ml-1.5 shrink-0 whitespace-nowrap text-right font-mono tabular-nums text-xs${inCountdown ? ' font-semibold' : ''}${urgent ? ' animate-pulse' : ''}`}
+                          className={`ml-1.5 shrink-0 whitespace-nowrap text-right font-mono tabular-nums text-xs${inCountdown ? ' font-semibold' : ''}${urgent ? ' overlay-breathe' : ''}`}
                           style={{ color: timerColor }}
                         >
                           {timerText}
                         </span>
                       )}
                       {warning && (
-                        <span className="ml-2 shrink-0 whitespace-nowrap text-xs text-amber-400 animate-pulse">
+                        <span key={warning} className="overlay-attention ml-2 shrink-0 whitespace-nowrap text-xs text-amber-400">
                           {warning}
                         </span>
                       )}
@@ -779,19 +853,31 @@ export default function Overlay() {
                 </div>
               </div>
             ) : (
-              <div className="relative z-[1] flex min-w-0 items-center" style={{ color: 'var(--overlay-text)' }}>
+              // key 让每种内容各自挂载一次，入场动画才会在换内容时重新播放。
+              // 波形在收的时候，处理中内容等它收到进度条那个位置（约 170ms）再出来。
+              <div
+                key={pillContentKey ?? pillMorphKey}
+                className={`relative z-[1] flex min-w-0 items-center${animatePillContent ? ' overlay-pill-content-enter' : ''}`}
+                style={{
+                  color: 'var(--overlay-text)',
+                  animationDelay: showWaveCollapse ? '170ms' : undefined,
+                }}
+              >
                 {state === 'thinking' && (
                   <div className="flex items-center gap-2">
-                    <div className="relative h-1 w-12 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className="absolute left-0 top-0 h-full rounded-full"
-                        style={{
-                          backgroundColor: thinkingColor,
-                          width: '100%',
-                          transformOrigin: 'left',
-                          animation: `progress-fill ${thinkingDuration}s cubic-bezier(0.4, 0, 0.2, 1) forwards`,
-                        }}
-                      />
+                    {/* 三段式进度（估计段 → 慢蹭段 → 流光），动画定义与原因见 index.css 的
+                        overlay-progress-*。--estimate 是估计时长，后两段都以它为延迟起点。 */}
+                    <div
+                      className="relative h-1 w-12 overflow-hidden rounded-full bg-white/10"
+                      style={{ '--estimate': `${thinkingDuration}s` } as CSSProperties}
+                    >
+                      <div className="overlay-progress-estimate absolute inset-0">
+                        <div
+                          className="overlay-progress-creep absolute inset-0 rounded-full"
+                          style={{ backgroundColor: thinkingColor }}
+                        />
+                      </div>
+                      <div className="overlay-progress-sheen absolute inset-y-0 left-0 rounded-full" aria-hidden />
                     </div>
                     <span className="text-xs whitespace-nowrap" style={{ color: thinkingColor }}>
                       {thinkingNote === 'late' ? t('overlay.awaitingLateResult') : t('overlay.processing')}

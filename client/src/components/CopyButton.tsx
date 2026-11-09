@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Copy, Check } from 'lucide-react'
+import { Copy } from 'lucide-react'
 import { Tooltip } from '@/components/ui/tooltip'
+import { SuccessCheck } from '@/components/ui/success-check'
 import * as bridge from '@/services/bridge'
 import { useT } from '@/i18n/useT'
 
@@ -32,7 +33,7 @@ export default function CopyButton({ text, className = '' }: CopyButtonProps) {
         aria-label={t('record.copy')}
       >
         {copied ? (
-          <Check className="h-4 w-4 text-success" />
+          <SuccessCheck className="h-4 w-4 text-success" />
         ) : (
           <Copy className="h-4 w-4" />
         )}

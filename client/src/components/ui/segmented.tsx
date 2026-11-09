@@ -5,9 +5,11 @@
 // 「自动 / 中文 / 英文」时拿不到"哪个是当前值"这条信息。收成一个组件后，语义只需修一次。
 //
 // 视觉与原来逐字一致（md 对应原 px-4 py-1.5 text-sm，sm 对应原 px-3 py-1 text-xs），
-// 只额外给选中项加了 font-medium 作为非颜色标记。
+// 只额外给选中项加了 font-medium 作为非颜色标记。选中底色后来改成了滑块（换选项时滑过去）。
 
+import { useRef } from 'react'
 import { cn } from '@/lib/utils'
+import { useSlidingIndicator } from './useSlidingIndicator'
 
 export interface SegmentedOption<T> {
   value: T
@@ -42,13 +44,23 @@ export function Segmented<T extends string | number>({
   animated = true,
   className,
 }: SegmentedProps<T>) {
+  const groupRef = useRef<HTMLDivElement>(null)
+  // 选中底色是一块独立的滑块（见 useSlidingIndicator），选项自己不再画选中底色。
+  // animated=false 的场合（设置值刚读回来）滑块也只能原地出现，否则又是一次"自己动了一下"。
+  const indicatorRef = useSlidingIndicator(groupRef, value, { animated })
   return (
     <div
+      ref={groupRef}
       role="radiogroup"
       aria-label={label}
       aria-labelledby={labelledBy}
-      className={cn('flex flex-wrap items-center gap-1', className)}
+      className={cn('relative flex flex-wrap items-center gap-1', className)}
     >
+      <span
+        ref={indicatorRef}
+        aria-hidden
+        className={cn('sliding-indicator bg-foreground/[0.08]', size === 'xs' ? 'rounded-md' : 'rounded-lg')}
+      />
       {options.map((option) => {
         const isActive = option.value === value
         return (
@@ -60,12 +72,13 @@ export function Segmented<T extends string | number>({
             disabled={disabled || option.disabled}
             onClick={() => onChange(option.value)}
             className={cn(
-              'inline-flex items-center justify-center rounded-lg font-medium outline-none disabled:pointer-events-none disabled:opacity-50',
+              'relative inline-flex items-center justify-center rounded-lg font-medium outline-none disabled:pointer-events-none disabled:opacity-50',
               'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               animated && 'transition-colors',
               size === 'xs' ? 'h-6 rounded-md px-2 text-xs' : size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-8 px-3 text-sm',
+              // 选中项的 hover 叠在滑块上：0.08 + 0.05 ≈ 原来的 0.13。
               isActive
-                ? 'bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.13]'
+                ? 'bg-transparent text-foreground hover:bg-foreground/[0.05]'
                 : 'bg-transparent text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground',
             )}
           >

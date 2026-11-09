@@ -5,7 +5,7 @@
 // 打开后焦点还留在背后的页面上、Tab 能跑到弹窗外面去。确认删除框更极端：唯一的关闭方式
 // 是 Tab 到「取消」（背板点击要用鼠标）。语义只在这里修一次。
 
-import { useCallback, useEffect, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useT } from '@/i18n/useT'
@@ -13,6 +13,60 @@ import { useBackdropDismiss } from '@/hooks/useBackdropDismiss'
 import { cn } from '@/lib/utils'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+const EXIT_MS = 140
+
+/**
+ * 关闭时淡出。
+ *
+ * 难处在于弹窗是**调用方**卸载的（`{open && <Modal …/>}`），而且关闭的入口五花八门：
+ * Esc、背板、右上角 ×，还有 children 里各自的「取消 / 确定」直接改父组件的 state。
+ * 想让每个入口都先播完动画再卸载，就得改十几处调用方。
+ *
+ * 所以换个做法：卸载那一刻把整层 DOM 复制一份（真身照常被 React 移除，焦点、事件都跟着走），
+ * 让这份不可交互的复制品淡出后自己删掉。React 卸载时先跑组件的 layout effect 清理、
+ * 再移除宿主节点，所以清理函数里拿到的 DOM 还是完整的。
+ *
+ * 复制品挂上去之前等一个 microtask：开发模式的 StrictMode 会在挂载后立刻模拟一次
+ * 卸载再挂载，那次不是真关闭；等到 microtask 时组件已经重新挂上了，就不留复制品。
+ */
+function useExitGhost(rootRef: RefObject<HTMLDivElement>) {
+  const mountedRef = useRef(false)
+  useLayoutEffect(() => {
+    mountedRef.current = true
+    const root = rootRef.current
+    return () => {
+      mountedRef.current = false
+      if (!root || !root.isConnected) return
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+      const ghost = root.cloneNode(true) as HTMLDivElement
+      ghost.removeAttribute('id')
+      ghost.setAttribute('aria-hidden', 'true')
+      ghost.setAttribute('inert', '')
+      ghost.style.pointerEvents = 'none'
+      // 复制品里不能还带着入场类，否则它会先再入场一次。
+      ghost.classList.remove('modal-backdrop-enter')
+      ghost.classList.add('modal-backdrop-exit')
+      const panel = ghost.querySelector('.modal-panel-enter')
+      panel?.classList.remove('modal-panel-enter')
+      panel?.classList.add('modal-panel-exit')
+      // 复制品不是对话框：去掉语义，免得读屏或按 role 找弹窗的代码把它当成还开着的那个。
+      panel?.removeAttribute('role')
+      panel?.removeAttribute('aria-modal')
+      panel?.removeAttribute('aria-labelledby')
+      ghost.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'))
+      // 滚动位置不随 cloneNode 复制；长弹窗滚到底再关，复制品会先跳回顶部。
+      // 必须现在读：等 microtask 时真身已经被移除，detached 元素的 scrollTop 是 0。
+      const scrollTop = root.querySelector('.modal-panel-enter')?.scrollTop ?? 0
+      queueMicrotask(() => {
+        if (mountedRef.current) return
+        document.body.appendChild(ghost)
+        if (panel) panel.scrollTop = scrollTop
+        window.setTimeout(() => ghost.remove(), EXIT_MS + 40)
+      })
+    }
+  }, [rootRef])
+}
 
 interface ModalProps {
   /** 弹窗标题，同时作为无障碍名称 */
@@ -45,6 +99,9 @@ export function Modal({
 
   // 点背板关闭。判据在 hook 里，别改回「背板直接挂 onClick」—— 那样拖选一出面板就误关。
   const backdropDismiss = useBackdropDismiss(requestClose)
+
+  const rootRef = useRef<HTMLDivElement>(null)
+  useExitGhost(rootRef)
 
   /**
    * 打开时把焦点移进弹窗（否则读屏与键盘用户还停在背后的页面上），关闭时还回去。
@@ -101,7 +158,8 @@ export function Modal({
     <div
       // 遮罩用固定的黑色而非 --foreground：深色主题的 foreground 是接近白的浅灰，
       // 拿它当遮罩会把背景照亮。遮罩在任何主题下都必须是暗的。
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      ref={rootRef}
+      className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       {...backdropDismiss}
     >
       <div
@@ -114,7 +172,7 @@ export function Modal({
         // 单靠这一条挡不住拖选出面板的情况 —— 那时 click 压根不走面板这条路径。
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          'relative max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border bg-card p-6 shadow-xl',
+          'modal-panel-enter relative max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border bg-card p-6 shadow-xl',
           panelClassName,
         )}
       >
