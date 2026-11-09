@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Mic, Clock, Type, Zap } from 'lucide-react'
 import { getStats, type Stats, getSetting } from '@/services/store'
-import { SHORTCUTS_CHANGED_EVENT } from '@/services/bridge'
+import { SHORTCUTS_CHANGED_EVENT, listen } from '@/services/bridge'
 import FeedbackSection from '@/components/FeedbackSection'
 import NoticeBanner from '@/components/NoticeBanner'
 import { displayShortcut } from '@/lib/shortcutKeys'
@@ -37,13 +37,22 @@ export default function Home() {
   const [handsFreeKey, setHandsFreeKey] = useState('AltRight')
 
   useEffect(() => {
-    getStats().then(setStats)
+    const loadStats = () => getStats().then(setStats)
+    void loadStats()
+    // 累计统计由 Rust 在写入/删除历史记录的同一事务里更新，事件在写完之后才发，
+    // 收到时读到的就是新值。以前只在挂载时读一次：主窗口停在首页、或从托盘重新打开
+    // （页面不会重新挂载）时，口述完数字一直不动，要切走再切回来才更新。
+    const unlistenHistory = listen('history-updated', () => { void loadStats() })
+
     const loadHandsFreeKey = () =>
       getSetting('shortcutHandsFree', 'AltRight').then((value) => setHandsFreeKey(value as string))
     void loadHandsFreeKey()
     // 快捷键变化时（向导 / 设置页修改）实时刷新首页提示，无需切换路由
     window.addEventListener(SHORTCUTS_CHANGED_EVENT, loadHandsFreeKey)
-    return () => window.removeEventListener(SHORTCUTS_CHANGED_EVENT, loadHandsFreeKey)
+    return () => {
+      window.removeEventListener(SHORTCUTS_CHANGED_EVENT, loadHandsFreeKey)
+      void unlistenHistory.then((fn) => fn())
+    }
   }, [])
 
   // Format time display
