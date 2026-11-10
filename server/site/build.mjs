@@ -26,7 +26,7 @@ const RELEASES = `${REPO}/releases/latest`
 const LICENSE_URL = 'https://www.gnu.org/licenses/agpl-3.0.html'
 // Bump when the page content changes meaningfully; feeds sitemap <lastmod>.
 // A build date would change on every run and make the output non-reproducible.
-const UPDATED = '2026-11-03'
+const UPDATED = '2026-11-10'
 const LOCALES = [en, zh]
 
 // The public feedback board only exists on the deployed site (it needs a backend the public
@@ -504,75 +504,23 @@ function cleanup(t) {
 </section>`
 }
 
-/* The app's built-in prompts, read from the client source, so the preset card's template picker and
-   its "edit" show the real text and follow the app when it changes them. */
-function builtinPrompts() {
-  const dir = path.resolve(HERE, '../../client/src/services')
-  const zhSrc = fs.readFileSync(path.join(dir, 'store.ts'), 'utf8')
-  const start = zhSrc.indexOf('export const BUILTIN_PRESETS')
-  const zhBlock = zhSrc.slice(start, zhSrc.indexOf('// i18n-allow-end', start))
-  const enSrc = fs.readFileSync(path.join(dir, 'builtinPromptsEn.ts'), 'utf8')
-  const out = { 'zh-CN': {}, en: {} }
-  for (const m of zhBlock.matchAll(/id: '(\w+)',[\s\S]*?systemPrompt: `([^`]*)`/g)) out['zh-CN'][m[1]] = m[2]
-  for (const m of enSrc.matchAll(/^ {2}(\w+): `([^`]*)`/gm)) out.en[m[1]] = m[2]
-  for (const lang of Object.keys(out)) {
-    for (const id of ['intent', 'faithful', 'zh2en', 'casual']) {
-      if (!out[lang][id] || out[lang][id].includes('${')) throw new Error(`built-in prompt ${lang}/${id} not found in client/src/services`)
-    }
-  }
-  return out
-}
-const BUILTIN_PROMPTS = builtinPrompts()
+/* Short facts under a section heading, in the hero's check-marked style: a few words each, so a
+   section reads as heading, one line, facts, picture (owner, 2026-11-10). */
+const headFacts = (items) => `<ul class="head-facts">${items.map((f) => `<li>${I.check({ size: 16 })}<span>${esc(f)}</span></li>`).join('')}</ul>`
 
 const logoImg = (id, size = 24) =>
-  id === 'plug' ? L('plug', size) : id === 'notepad' ? L('notepadText', size) : `<img src="/img/logos/${id}.svg" width="${size}" height="${size}" alt="" loading="lazy" decoding="async">`
+  id === 'plug' ? L('plug', size) : `<img src="/img/logos/${id}.svg" width="${size}" height="${size}" alt="" loading="lazy" decoding="async">`
 
 /* The core selling point (owner, 2026-10-13): the prompt is entirely yours.
-   Left of the fold, the app's own "cleanup presets" card (PromptPresetSection.tsx) with its
-   new-preset form open, field for field. The owner caught the previous version inventing two
-   fields the app does not have (2026-10-16), so nothing here goes beyond the real card; app.js
-   makes it behave like the real one (template, edit, save, delete, shortcut).
-   Below: one sentence through four presets, laid out as one input fanning out to four results,
-   then the per-app rules as the apps' own icons. */
+   One screen, one idea (owner, 2026-11-10, after comparing with the Doubao IME page, which says
+   each feature as a heading, one line, three short facts and one picture): the picture is one
+   sentence fanning out to four presets, the last one the user's own.
+   Dropped then: the app's preset card with its new-preset form open. It was the tallest thing on
+   the page, and the clickable app further down already edits the same prompts, so the page showed
+   it twice. The nine per-app icons became the third fact. If the card comes back, it must stay a
+   1:1 copy of PromptPresetSection.tsx (owner, 2026-10-16: no fields the app does not have). */
 function rules(t) {
   const r = t.rules
-  const c = r.card
-  const rows = c.presets
-    .map(
-      ([id, name, desc], i) => `<li class="pp-row${i === 0 ? ' is-on' : ''}" data-pp-row="${id}" data-builtin>
-            <button type="button" class="pp-pick" aria-pressed="${i === 0}"><span class="pp-radio" aria-hidden="true"></span><span class="pp-row-main"><span class="pp-row-name"><b>${esc(name)}</b><span class="pp-badge">${esc(c.builtin)}</span></span><small>${para(desc)}</small></span></button>
-            <span class="pp-row-acts"><button type="button" class="pp-icon" data-pp-edit aria-label="${esc(c.edit)}">${L('pencil', 14)}</button></span>
-          </li>`,
-    )
-    .join('\n          ')
-  const options = [`<option value="">${esc(c.noTemplate)}</option>`, ...c.presets.map(([id, name]) => `<option value="${id}">${esc(c.builtinSuffix.replace('{name}', name))}</option>`)].join('')
-  const data = {
-    prompts: BUILTIN_PROMPTS,
-    names: Object.fromEntries(c.presets.map(([id, name]) => [id, name])),
-    s: { createTitle: c.createTitle, editTitle: c.editTitle, missingBoth: c.missingBoth, missingName: c.missingName, missingPrompt: c.missingPrompt, notSet: c.notSet, pressKeys: c.pressKeys, builtin: c.builtin, edit: c.edit, delete: c.delete, draftName: c.draftName, draftPrompt: c.draftPrompt },
-  }
-  const card = `<div class="pp" data-pp data-lang="${c.lang}">
-        <script type="application/json" data-pp-data>${jsonLd(data)}</script>
-        <div class="pp-head">
-          <p class="pp-title"><b>${esc(c.title)}</b><span class="pp-info" title="${esc(c.desc)}" aria-label="${esc(c.desc)}">${L('info', 14)}</span></p>
-          <div class="pp-head-acts">
-            <span class="pp-seg" role="radiogroup" aria-label="${esc(c.langLabel)}">${c.langs.map(([id, label]) => `<button type="button" role="radio" aria-checked="${id === c.lang}" data-pp-lang="${id}">${esc(label)}</button>`).join('')}</span>
-            <button type="button" class="pp-new" data-pp-new>${L('plus', 12)}<span>${esc(c.new)}</span></button>
-          </div>
-        </div>
-        <div class="pp-form" data-pp-form>
-          <p class="pp-form-title" data-pp-form-title>${esc(c.createTitle)}</p>
-          <label class="pp-field"><span class="pp-label">${esc(c.name)}</span><input class="pp-input" type="text" data-pp-name value="${esc(c.draftName)}" placeholder="${esc(c.namePlaceholder)}" maxlength="40"></label>
-          <div class="pp-field" data-pp-template-field><label class="pp-label" for="pp-template-${t.lang}">${esc(c.template)}</label><span class="pp-select"><select id="pp-template-${t.lang}" data-pp-template>${options}</select>${L('chevronDown', 16)}</span><p class="pp-hint">${para(c.templateHint)}</p></div>
-          <label class="pp-field"><span class="pp-label">${esc(c.systemPrompt)}</span><span class="pp-hint pp-hint-top">${para(c.systemPromptHint)}</span><textarea class="pp-textarea" data-pp-prompt rows="8" spellcheck="false" placeholder="${esc(c.systemPromptPlaceholder)}">${esc(c.draftPrompt)}</textarea></label>
-          <div class="pp-shortcut"><span><b>${esc(c.shortcut)}</b><small>${para(c.shortcutHint)}</small></span><span class="pp-key-wrap"><button type="button" class="pp-key" data-pp-key><kbd>${esc(c.notSet)}</kbd></button><button type="button" class="pp-icon" data-pp-key-clear aria-label="${esc(c.clear)}">${L('x', 14)}</button></span></div>
-          <div class="pp-foot"><span class="pp-missing" data-pp-missing hidden></span><button type="button" class="pp-link" data-pp-restore hidden>${esc(c.restoreDefault)}</button><button type="button" class="pp-btn" data-pp-cancel>${esc(c.cancel)}</button><button type="button" class="pp-btn is-primary" data-pp-save>${esc(c.save)}</button></div>
-        </div>
-        <ul class="pp-list" data-pp-list>
-          ${rows}
-        </ul>
-        <template data-pp-tpl><li class="pp-row is-new" data-pp-row=""><button type="button" class="pp-pick" aria-pressed="false"><span class="pp-radio" aria-hidden="true"></span><span class="pp-row-main"><span class="pp-row-name"><b></b></span></span></button><span class="pp-row-acts"><button type="button" class="pp-icon" data-pp-edit aria-label="${esc(c.edit)}">${L('pencil', 14)}</button><button type="button" class="pp-icon is-danger" data-pp-delete aria-label="${esc(c.delete)}">${L('trash2', 14)}</button></span></li></template>
-      </div>`
   const fan = r.cards
     .map(
       (it) => `<li class="fan-row${it.kind === 'custom' ? ' is-custom' : ''}">
@@ -581,30 +529,18 @@ function rules(t) {
         </li>`,
     )
     .join('\n        ')
-  const ar = r.appRules
-  const apps = ar.apps
-    .map(([id, label]) => `<li><span class="logo-tile">${logoImg(id, 26)}</span><span>${esc(label)}</span></li>`)
-    .join('')
   return `<section class="section section-mica" id="rules" aria-labelledby="rules-title">
   <div class="wrap">
-    <div class="split split-rules">
-      <div class="split-copy">
-        ${hx('h2', r.title, ' id="rules-title"')}
-        <p>${para(r.lead)}</p>
-        <ul class="team-points">${r.points.map((x) => `<li>${I.check({ size: 16 })}<span>${para(x)}</span></li>`).join('')}</ul>
-      </div>
-      ${card}
-    </div>
-    <header class="rules-head">${hx('h3', r.compareTitle, ' class="rules-sub"')}<p>${para(r.compareLead)}</p></header>
+    <header class="section-head is-center">
+      ${hx('h2', r.title, ' id="rules-title"')}
+      <p>${para(r.lead)}</p>
+      ${headFacts(r.facts)}
+    </header>
     <div class="fan">
       <div class="fan-said"><p class="fan-label">${I.mic({ size: 14 })}${esc(r.inputLabel)}</p><p class="fan-text">${para(r.input)}</p></div>
       <ol class="fan-list">
         ${fan}
       </ol>
-    </div>
-    <div class="apprules">
-      <div class="apprules-copy"><p class="apprules-title">${esc(ar.title)}</p><p>${para(ar.desc)}</p></div>
-      <ul class="apprules-apps">${apps}<li class="is-add"><span class="logo-tile">${L('plus', 18)}</span><span>${esc(ar.add)}</span></li></ul>
     </div>
   </div>
 </section>`
@@ -613,9 +549,11 @@ function rules(t) {
 /* Where speech is recognized, and with which models: one section (owner, 2026-10-18: the three
    cards with a four-row table each, and a separate model list below them, said the same thing twice
    without showing it). What the visitor decides is where the audio goes, so each card leads with who
-   it is for and a small route picture: does the line leave "your PC", and where to. Then cost and
-   setup in one line each, then that mode's models as logos. AI cleanup models, which apply to every
-   mode, sit in one strip underneath. */
+   it is for and a small route picture: does the line leave "your PC", and where to.
+   Then one line of cost and setup, nothing more (owner, 2026-11-10: next to the Doubao IME page the
+   cards read as tables; 40-odd icons and logos in one section). The models are one strip of brand
+   logos under the cards, each brand once, for recognition and AI cleanup together. Which model
+   belongs to which mode is the app's and the setup guides' job, not the landing page's. */
 function modes(t) {
   const m = t.modes
   const icon = { local: 'cpu', cloud: 'cloud', server: 'server' }
@@ -627,10 +565,6 @@ function modes(t) {
     if (it.id === 'local') return `<div class="route is-local"><span class="route-pc"><span class="route-pc-label">${L('laptop', 13)}${esc(m.pc)}</span>${mic}${flow}${node('cpu', it.dest, ' is-dest')}</span></div>`
     return `<div class="route"><span class="route-pc"><span class="route-pc-label">${L('laptop', 13)}${esc(m.pc)}</span>${mic}</span>${flow}${node(icon[it.id], it.dest, ' is-dest is-out')}</div>`
   }
-  const models = (it) =>
-    it.models
-      ? `<ul class="mode-models">${it.models.map(([logo, name]) => `<li><span class="mode-logo">${logoImg(logo, 18)}</span>${esc(name)}</li>`).join('')}</ul>`
-      : `<ul class="mode-servers">${it.servers.map(([name, sub, href]) => `<li>${href ? `<a href="${href}">` : '<span>'}<span class="mode-logo">${L('server', 16)}</span><span><b>${esc(name)}</b><small>${para(sub)}</small></span>${href ? `${L('chevronRight', 14)}</a>` : '</span>'}</li>`).join('')}</ul>`
   const cards = m.items
     .map(
       (it) => `<li class="mode mode-${it.id}">
@@ -638,13 +572,12 @@ function modes(t) {
           ${hx('h3', it.head)}
           ${route(it)}
           <p class="mode-privacy">${L('shieldCheck', 15)}<span>${para(it.privacy)}</span></p>
-          <dl class="mode-facts">${it.facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${para(v)}</dd></div>`).join('')}</dl>
-          <div class="mode-foot"><p class="mode-label">${esc(it.modelsLabel)}</p>${models(it)}</div>
+          <p class="mode-line">${para(it.line)}</p>
         </li>`,
     )
     .join('\n        ')
-  const ai = m.ai
-  const aiItems = ai.items.map(([logo, name]) => `<li><span class="logo-tile">${logoImg(logo, 24)}</span><span>${esc(name)}</span></li>`).join('')
+  const st = m.strip
+  const logos = st.items.map(([logo, name]) => `<li><span class="logo-tile">${logoImg(logo, 24)}</span><span>${esc(name)}</span></li>`).join('')
   return `<section class="section section-mica" id="models" aria-labelledby="modes-title">
   <div class="wrap">
     <header class="section-head">
@@ -654,9 +587,9 @@ function modes(t) {
     <ol class="mode-grid">
         ${cards}
     </ol>
-    <div class="apprules ai-strip">
-      <div class="apprules-copy"><p class="apprules-title">${esc(ai.title)}</p><p>${para(ai.sub)}</p></div>
-      <ul class="apprules-apps">${aiItems}</ul>
+    <div class="model-strip">
+      <p class="model-strip-copy"><b>${esc(st.title)}</b><span>${para(st.sub)}</span></p>
+      <ul class="logo-row">${logos}</ul>
     </div>
   </div>
 </section>`
@@ -945,17 +878,12 @@ function demo(t) {
 </section>`
 }
 
+/* One screen (owner, 2026-11-10, after the Doubao IME comparison): copy, facts, the picture.
+   The deploy commands and the three-row speed table moved out: the commands are in the server
+   guide the second button opens, and the speed became the fourth fact. Whoever deploys reads the
+   guide anyway; the visitor deciding only needs "it is fast". */
 function selfhost(t) {
   const s = t.selfhost
-  const cmd = (c) => `<span class="t-line"><span class="t-p" aria-hidden="true">$ </span>${esc(c)}</span>`
-  const lines = [
-    cmd('git clone https://github.com/crosswk/SayIt.git'),
-    cmd('cd SayIt/server'),
-    cmd('cp config.example.yaml config.yaml'),
-    cmd('cp .env.example .env'),
-    cmd('docker compose up -d --build'),
-  ].join('\n')
-  const rows = s.perfRows.map((r) => `<tr><th scope="row">${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('')
   const d = s.diagram
   /* A picture of the boundary, not a feature list (the owner found the old text-heavy version hard
      to read, 2026-10-16): three teammates talking (each with the overlay running), their voices
@@ -989,20 +917,6 @@ function selfhost(t) {
         </div>
       </div>
     </figure>
-  </div>
-  <div class="wrap team-foot">
-    <div class="terminal term-mini">
-      <div class="term-bar"><span class="term-tab">${I.terminal({ size: 14 })}<span>${esc(s.terminal || 'Ubuntu')}</span></span><button class="icon-btn term-copy" type="button" data-copy-terminal aria-label="${esc(t.demo.copy)}" title="${esc(t.demo.copy)}" hidden>${I.copy({ size: 15, cls: 'ico-copy' })}${I.check({ size: 15, cls: 'ico-check' })}</button>${caps}</div>
-      <pre class="term-body"><code>${lines}</code></pre>
-    </div>
-    <div class="perf-card">
-      <p class="perf-bar" aria-hidden="true"><b>${esc(s.perfTitle)}</b><small>${esc(s.perfCaption)}</small></p>
-      <table class="perf">
-        <caption class="sr-only">${esc(s.perfTitle)} · ${esc(s.perfCaption)}</caption>
-        <thead><tr>${s.perfHead.map((h) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
   </div>
 </section>`
 }

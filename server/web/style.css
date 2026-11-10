@@ -518,7 +518,8 @@ del {
   text-decoration-color: currentColor;
 }
 
-.hero-facts {
+.hero-facts,
+.head-facts {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 20px;
@@ -527,14 +528,32 @@ del {
   color: var(--text-2);
 }
 
-.hero-facts li {
+.hero-facts li,
+.head-facts li {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.hero-facts .ico {
+.hero-facts .ico,
+.head-facts .ico {
   color: var(--success);
+}
+
+/* The same row under a section heading (build.mjs headFacts): a touch larger, as the lead above
+   it is 18px, and never split inside one fact. */
+.head-facts {
+  gap: 8px 24px;
+  margin-top: 20px;
+  font-size: 15px;
+}
+
+.head-facts li {
+  white-space: nowrap;
+}
+
+.section-head.is-center .head-facts {
+  justify-content: center;
 }
 
 /* ── Hero stage: the three AI tools as they really look ───────────────────── */
@@ -1875,438 +1894,7 @@ del {
   transform: rotate(90deg);
 }
 
-/* ── AI cleanup: the app's preset card, one sentence through four presets, per-app rules ── */
-
-/* PromptPresetSection.tsx at 1:1 on the light zinc theme: Card p-6, the bordered muted form with
-   h-9 inputs and a text-xs textarea, the combo shortcut box, then the preset rows. Nothing that
-   the app does not have (owner, 2026-10-16). */
-.pp {
-  --pp-border: #e4e4e7;
-  --pp-muted: #f4f4f5;
-  --pp-fg: #09090b;
-  --pp-fg2: #71717a;
-  --pp-primary: #18181b;
-  align-self: start;
-  padding: 24px;
-  border-radius: 12px;
-  border: 1px solid var(--pp-border);
-  background: #fff;
-  color: var(--pp-fg);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), var(--shadow-win);
-  font-family: "Microsoft YaHei", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.pp-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.pp-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 18px;
-}
-
-.pp-title b {
-  font-weight: 600;
-}
-
-.pp-info {
-  display: inline-grid;
-  color: var(--pp-fg2);
-  cursor: help;
-}
-
-.pp-head-acts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Segmented, size sm: h-7 px-2.5 text-xs, the active one on foreground/8%. */
-.pp-seg {
-  display: flex;
-  gap: 4px;
-}
-
-.pp-seg button {
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--pp-fg2);
-  transition: background-color 0.15s, color 0.15s;
-}
-
-.pp-seg button:hover {
-  background: rgba(9, 9, 11, 0.05);
-  color: var(--pp-fg);
-}
-
-.pp-seg button[aria-checked="true"] {
-  background: rgba(9, 9, 11, 0.08);
-  color: var(--pp-fg);
-}
-
-.pp-new,
-.pp-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--pp-border);
-  font-size: 12px;
-  transition: background-color 0.15s;
-}
-
-.pp-new:hover,
-.pp-btn:hover {
-  background: var(--pp-muted);
-}
-
-.pp-form {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 16px;
-  border-radius: 8px;
-  border: 1px solid rgba(24, 24, 27, 0.3);
-  background: var(--pp-muted);
-}
-
-.pp-form[hidden] {
-  display: none;
-}
-
-.pp-form-title {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.pp-field {
-  display: block;
-}
-
-.pp-label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.pp-input,
-.pp-select select,
-.pp-textarea {
-  width: 100%;
-  border-radius: 6px;
-  border: 1px solid var(--pp-border);
-  background: #fff;
-  color: var(--pp-fg);
-  font: inherit;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.pp-input,
-.pp-select select {
-  height: 36px;
-  padding: 0 12px;
-  font-size: 14px;
-}
-
-.pp-input:disabled {
-  background: #fafafa;
-  color: var(--pp-fg2);
-}
-
-.pp-input::placeholder,
-.pp-textarea::placeholder {
-  color: #a1a1aa;
-}
-
-.pp-input:focus,
-.pp-select select:focus,
-.pp-textarea:focus {
-  outline: none;
-  border-color: var(--pp-primary);
-  box-shadow: 0 0 0 3px rgba(24, 24, 27, 0.12);
-}
-
-.pp-select {
-  position: relative;
-  display: block;
-}
-
-.pp-select select {
-  padding-right: 34px;
-  appearance: none;
-  cursor: pointer;
-}
-
-.pp-select .ico {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  color: var(--pp-fg2);
-  pointer-events: none;
-}
-
-.pp-hint {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--pp-fg2);
-}
-
-.pp-hint-top {
-  display: block;
-  margin: -2px 0 8px;
-}
-
-.pp-textarea {
-  display: block;
-  padding: 8px 12px;
-  font-size: 12px;
-  line-height: 1.5;
-  resize: vertical;
-}
-
-.pp-shortcut {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(228, 228, 231, 0.6);
-}
-
-.pp-shortcut b {
-  display: block;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.pp-shortcut small {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 1.625;
-  color: var(--pp-fg2);
-}
-
-.pp-key-wrap {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-/* The combo box: keycaps on a muted field; ring while it listens. */
-.pp-key {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--pp-border);
-  background: var(--pp-muted);
-  font-size: 14px;
-  white-space: nowrap;
-  transition: background-color 0.15s, box-shadow 0.15s;
-}
-
-.pp-key kbd {
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--pp-border);
-  background: #fff;
-  font: inherit;
-  font-size: 12px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.pp-key .pp-plus {
-  margin: 0 2px;
-  color: var(--pp-fg2);
-}
-
-.pp-key.is-listening {
-  border-color: var(--pp-primary);
-  background: rgba(24, 24, 27, 0.05);
-  box-shadow: 0 0 0 2px rgba(24, 24, 27, 0.2);
-  color: var(--pp-fg2);
-}
-
-.pp-icon {
-  display: inline-grid;
-  place-items: center;
-  padding: 6px;
-  border-radius: 4px;
-  color: var(--pp-fg2);
-  transition: background-color 0.15s;
-}
-
-.pp-icon:hover {
-  background: var(--pp-muted);
-}
-
-.pp-icon.is-danger {
-  color: #ef4444;
-}
-
-.pp-foot {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.pp-missing {
-  margin-right: auto;
-  font-size: 12px;
-  color: var(--pp-fg2);
-}
-
-.pp-link {
-  padding: 4px 8px;
-  font-size: 12px;
-  color: var(--pp-fg2);
-}
-
-.pp-link:hover {
-  color: var(--pp-fg);
-}
-
-.pp-btn {
-  padding: 4px 12px;
-}
-
-.pp-btn.is-primary,
-.pp-btn.is-primary:hover {
-  border-color: var(--pp-primary);
-  background: var(--pp-primary);
-  color: #fafafa;
-}
-
-.pp-btn:disabled {
-  opacity: 0.5;
-}
-
-.pp-list {
-  display: grid;
-  gap: 8px;
-}
-
-.pp-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid var(--pp-border);
-  transition: background-color 0.15s, border-color 0.15s;
-}
-
-.pp-row:hover {
-  background: rgba(244, 244, 245, 0.5);
-}
-
-.pp-row.is-on {
-  border-color: rgba(24, 24, 27, 0.4);
-  background: rgba(24, 24, 27, 0.05);
-}
-
-.pp-row.is-new {
-  animation: chip-in 0.3s var(--ease-out);
-}
-
-.pp-pick {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  text-align: left;
-}
-
-.pp-radio {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid rgba(113, 113, 122, 0.4);
-}
-
-.pp-row.is-on .pp-radio {
-  border-color: var(--pp-primary);
-}
-
-.pp-row.is-on .pp-radio::after {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--pp-primary);
-}
-
-.pp-row-main {
-  display: grid;
-  min-width: 0;
-}
-
-.pp-row-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pp-row-name b {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.pp-badge {
-  flex-shrink: 0;
-  white-space: nowrap;
-  padding: 0 4px;
-  border-radius: 4px;
-  border: 1px solid var(--pp-border);
-  font-size: 12px;
-  color: var(--pp-fg2);
-}
-
-.pp-sc {
-  padding: 0 6px;
-  border-radius: 4px;
-  border: 1px solid rgba(24, 24, 27, 0.3);
-  background: rgba(24, 24, 27, 0.05);
-  font-size: 12px;
-  color: var(--pp-fg2);
-}
-
-.pp-row-main small {
-  font-size: 12px;
-  color: var(--pp-fg2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pp-row-acts {
-  display: flex;
-  flex-shrink: 0;
-  gap: 4px;
-}
+/* ── AI cleanup: one sentence fanning out to four presets ───────────────── */
 
 /* One sentence fanning out to four results: the input on the left, a bracket of wires, one row
    per preset (name and what it does | what gets typed). The old four-card grid read as clutter. */
@@ -2446,40 +2034,15 @@ del {
   font: 14px/1.6 var(--mono-cjk);
 }
 
-/* Per-app rules: the apps' own icons, the way the app lists its built-in rules. */
-.apprules {
-  display: grid;
-  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
-  align-items: center;
-  gap: 20px 40px;
-  margin-top: 28px;
-  padding: 22px 24px;
-  border-radius: 16px;
-  background: #fff;
-  border: 1px solid var(--stroke);
-  box-shadow: var(--shadow-card);
-}
-
-.apprules-title {
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.apprules-copy p+p {
-  margin-top: 4px;
-  font-size: 14px;
-  color: var(--text-2);
-}
-
-.apprules-apps {
+/* Brand logos with their names underneath (build.mjs modes(), the strip under the cards). Names stay
+   on one line ("OpenAI 兼容" wrapped as "OpenAI 兼" / "容"); an item grows past 68px when its name needs it. */
+.logo-row {
   display: flex;
   flex-wrap: wrap;
   gap: 14px 6px;
 }
 
-/* Labels under the icons stay on one line ("OpenAI 兼容" wrapped as "OpenAI 兼" / "容"); the item
-   grows past 68px when its name needs it. */
-.apprules-apps li {
+.logo-row li {
   display: grid;
   justify-items: center;
   gap: 6px;
@@ -2507,51 +2070,6 @@ del {
   width: 26px;
   height: 26px;
   object-fit: contain;
-}
-
-.apprules-apps .is-add .logo-tile {
-  border-style: dashed;
-  background: none;
-  box-shadow: none;
-  color: var(--text-3);
-}
-
-/* Two classes: .split (defined further down) would otherwise win back align-items. */
-.split.split-rules {
-  align-items: start;
-  margin-bottom: clamp(56px, 7vw, 88px);
-}
-
-/* The card is tall; the copy stays in view beside it. */
-.split-rules .split-copy {
-  position: sticky;
-  top: 104px;
-}
-
-.split-rules .team-points {
-  margin-top: 24px;
-}
-
-/* The second heading of this section, at the same size as the first (owner, 2026-10-19: at 2rem
-   next to the 2.75rem section title it looked like a stray caption). */
-.rules-head {
-  margin-bottom: 28px;
-}
-
-.rules-sub {
-  font-size: min(clamp(2rem, 1.25rem + 2vw, 2.75rem), var(--hfit));
-  letter-spacing: -0.022em;
-}
-
-.rules-head p {
-  margin-top: 12px;
-  font-size: 17px;
-  color: var(--text-2);
-}
-
-:lang(zh) .rules-sub {
-  line-height: 1.3;
-  letter-spacing: 0;
 }
 
 /* ── Split sections ───────────────────────────────────────────────────────── */
@@ -2584,24 +2102,6 @@ del {
 }
 
 /* ── Team: one server inside the company network ──────────────────────────── */
-
-.team-points {
-  display: grid;
-  gap: 10px;
-  margin-top: 22px;
-  font-size: 15px;
-  color: var(--text-2);
-}
-
-.team-points li {
-  display: flex;
-  gap: 10px;
-}
-
-.team-points .ico {
-  margin-top: 4px;
-  color: var(--success);
-}
 
 /* Three short facts instead of four long bullets (owner, 2026-10-16: too much to read). */
 .team-facts {
@@ -2886,62 +2386,6 @@ del {
   color: rgba(250, 250, 250, 0.65);
 }
 
-/* The same columns and gap as the split above, so the terminal sits under the copy and the table
-   under the diagram; both start on one line and end on one line (owner, 2026-10-19: they didn't). */
-.team-foot {
-  display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: clamp(32px, 5vw, 72px);
-  align-items: stretch;
-  margin-top: clamp(40px, 5vw, 64px);
-}
-
-.team-foot .terminal {
-  display: flex;
-  flex-direction: column;
-}
-
-.team-foot .term-body {
-  flex: 1;
-  font-size: 13px;
-}
-
-.perf-card {
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius);
-  background: var(--layer);
-  border: 1px solid var(--stroke);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-
-/* As tall as the terminal's title bar. */
-.perf-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 40px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--stroke);
-  font-size: 13.5px;
-}
-
-.perf-bar small {
-  margin-left: auto;
-  font-size: 12.5px;
-  color: var(--text-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.perf-card .perf {
-  flex: 1;
-  border: 0;
-  border-radius: 0;
-}
-
 /* ── Where speech is recognized: who it is for, where the audio goes, models ─ */
 
 .mode-grid {
@@ -3076,134 +2520,43 @@ del {
   color: var(--success);
 }
 
-.mode-facts {
-  display: grid;
-  gap: 6px;
+/* Cost and setup in one line, under the privacy line (owner, 2026-11-10: the fact table and the
+   model chips made each card read as a spec sheet). */
+.mode-line {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--stroke);
-}
-
-.mode-facts div {
-  display: grid;
-  grid-template-columns: 3.4em minmax(0, 1fr);
-  gap: 8px;
-}
-
-.mode-facts dt {
-  font-size: 13px;
-  color: var(--text-3);
-}
-
-.mode-facts dd {
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.55;
+  color: var(--text-2);
 }
 
-.mode-foot {
-  margin-top: auto;
-  padding-top: 18px;
-}
-
-.mode-label {
-  margin-bottom: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-3);
-}
-
-.mode-models {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.mode-models li {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 10px 0 5px;
-  border-radius: 999px;
-  border: 1px solid var(--stroke);
-  background: #fff;
-  font-size: 12.5px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.mode-logo {
+/* Every brand once, recognition and AI cleanup together, centred under the three cards. No card
+   around it: on the grey section a white box would be a card next to cards. */
+.model-strip {
   display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--bg-deep);
+  justify-items: center;
+  gap: 18px;
+  margin-top: clamp(36px, 4.5vw, 52px);
+  text-align: center;
 }
 
-.mode-logo img {
-  width: 15px;
-  height: 15px;
-  object-fit: contain;
-}
-
-.mode-logo .ico {
-  width: 14px;
-  height: 14px;
-}
-
-.mode-servers {
+.model-strip-copy {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
-.mode-servers li>a,
-.mode-servers li>span {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--stroke);
+.model-strip-copy b {
+  font-size: 17px;
 }
 
-.mode-servers a {
-  transition: background-color 0.15s;
+.model-strip-copy span {
+  font-size: 14px;
+  color: var(--text-2);
 }
 
-.mode-servers a:hover {
-  background: var(--bg-deep);
-}
-
-.mode-servers a>.ico:last-child {
-  margin-left: auto;
-  color: var(--text-3);
-}
-
-.mode-servers .mode-logo {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-}
-
-.mode-servers b {
-  display: block;
-  font-size: 13.5px;
-  font-weight: 600;
-}
-
-.mode-servers small {
-  display: block;
-  font-size: 12px;
-  color: var(--text-3);
-}
-
-.ai-strip {
-  margin-top: 16px;
-}
-
-.ai-strip .apprules-apps {
-  justify-content: flex-end;
+.model-strip .logo-row {
+  justify-content: center;
 }
 
 /* ── The app, clickable ───────────────────────────────────────────────────── */
@@ -4766,23 +4119,19 @@ del {
   height: 32px;
 }
 
-.copy-btn .ico-check,
-.term-copy .ico-check {
+.copy-btn .ico-check {
   display: none;
 }
 
-.copy-btn.is-copied,
-.term-copy.is-copied {
+.copy-btn.is-copied {
   color: var(--success);
 }
 
-.copy-btn.is-copied .ico-copy,
-.term-copy.is-copied .ico-copy {
+.copy-btn.is-copied .ico-copy {
   display: none;
 }
 
-.copy-btn.is-copied .ico-check,
-.term-copy.is-copied .ico-check {
+.copy-btn.is-copied .ico-check {
   display: block;
 }
 
@@ -4918,120 +4267,6 @@ del {
   padding: 16px 28px 24px;
   font-size: 14px;
   color: var(--text-2);
-}
-
-/* ── Dark terminal (deploy commands) ──────────────────────────────────────── */
-
-.terminal {
-  position: relative;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: #0c0c0c;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 30px 60px -24px rgba(0, 0, 0, 0.55);
-}
-
-.terminal .term-bar {
-  display: flex;
-  align-items: flex-end;
-  height: 40px;
-  padding-left: 8px;
-  background: #1f1f1f;
-  color: #fff;
-  font-size: 12px;
-}
-
-.term-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  width: 190px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 7px 7px 0 0;
-  background: #0c0c0c;
-}
-
-.terminal .win-caps {
-  align-self: stretch;
-  color: #fff;
-}
-
-.term-body {
-  margin: 0;
-  padding: 20px 24px 24px;
-  overflow-x: auto;
-  font: 14px/1.8 var(--mono-cjk);
-  color: #cccccc;
-}
-
-.t-line {
-  white-space: pre;
-}
-
-.t-p {
-  color: #16c60c;
-}
-
-.term-copy {
-  align-self: center;
-  width: 30px;
-  height: 30px;
-  margin-left: auto;
-  color: #c8c8c8;
-}
-
-.term-copy:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-}
-
-.term-copy.is-copied {
-  color: #4ade80;
-}
-
-.term-copy:not([hidden])+.win-caps {
-  margin-left: 4px;
-}
-
-.perf {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  border-radius: var(--radius);
-  background: var(--layer);
-  border: 1px solid var(--stroke);
-  overflow: hidden;
-  font-variant-numeric: tabular-nums;
-}
-
-.perf caption {
-  caption-side: top;
-  padding-bottom: 12px;
-  text-align: left;
-  font-size: 14px;
-  color: var(--text-2);
-}
-
-.perf th,
-.perf td {
-  padding: 13px 20px;
-  text-align: left;
-  font-size: 15px;
-}
-
-.perf thead th {
-  background: var(--bg-deep);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-2);
-}
-
-.perf tbody th {
-  font-weight: 600;
-}
-
-.perf tbody>tr>* {
-  border-top: 1px solid var(--stroke);
 }
 
 /* ── FAQ ──────────────────────────────────────────────────────────────────── */
@@ -5295,8 +4530,7 @@ del {
 
   .demo-grid,
   .split,
-  .faq-grid,
-  .team-foot {
+  .faq-grid {
     grid-template-columns: 1fr;
   }
 
@@ -5304,13 +4538,8 @@ del {
     position: static;
   }
 
-  .split-rules .split-copy {
-    position: static;
-  }
-
   /* The input on top, the rail running down the left of the four rows. */
-  .fan,
-  .apprules {
+  .fan {
     grid-template-columns: 1fr;
   }
 
@@ -5337,10 +4566,6 @@ del {
 
   .fan-row:first-child::after {
     top: -20px;
-  }
-
-  .ai-strip .apprules-apps {
-    justify-content: flex-start;
   }
 
   .mode-grid {
@@ -5421,24 +4646,8 @@ del {
     border-bottom: 1px solid var(--stroke);
   }
 
-  .apprules {
-    padding: 18px 16px;
-  }
-
-  .apprules-apps li {
+  .logo-row li {
     min-width: 58px;
-  }
-
-  .pp {
-    padding: 16px;
-  }
-
-  .pp-form {
-    padding: 12px;
-  }
-
-  .pp-shortcut {
-    flex-wrap: wrap;
   }
 
   .mode {
@@ -5608,12 +4817,6 @@ del {
     border-right: 0;
     border-bottom: 1px solid var(--stroke);
   }
-
-  .perf th,
-  .perf td {
-    padding: 12px 14px;
-    font-size: 14px;
-  }
 }
 
 @media (max-width: 520px) {
@@ -5648,15 +4851,6 @@ del {
 
   .footer-bottom {
     flex-direction: column;
-  }
-
-  .term-body {
-    font-size: 13px;
-    padding: 18px;
-  }
-
-  .term-tab {
-    width: auto;
   }
 }
 

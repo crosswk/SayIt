@@ -124,55 +124,12 @@ export default {
     note: 'Illustrative. Real results depend on the speech model and the AI model you choose.',
   },
   rules: {
+    // One screen (owner, 2026-11-10, after comparing with the Doubao IME page): heading, one line,
+    // three short facts, the fan-out picture. The preset editor card is gone (the clickable app below
+    // edits the same prompts), and the per-app rules became the third fact.
     title: 'Write the prompt, get the text you want.',
-    lead: 'Four built-in presets with their full prompts open to edit, or write a new one from scratch.',
-    points: ['Every built-in prompt is visible. Change any line.', 'Write your own: commit messages, translation, an email tone.', 'Give a preset a shortcut and switch any time.'],
-    // The app's "Cleanup presets" card (AI cleanup page), word for word from client/src/i18n/locales/en.json
-    // promptPreset.*. Only what the app really has (owner, 2026-10-16).
-    card: {
-      title: 'Cleanup presets',
-      desc: 'Choose or customize how AI cleans up transcripts.',
-      langLabel: 'Built-in preset language',
-      langs: [['zh-CN', 'Chinese'], ['en', 'English']],
-      lang: 'en',
-      new: 'New',
-      createTitle: 'New cleanup preset',
-      editTitle: 'Edit “{name}”',
-      name: 'Name',
-      namePlaceholder: 'For example: Meeting notes',
-      template: 'Start from an existing preset (optional)',
-      noTemplate: 'Start from scratch',
-      builtinSuffix: '{name} (built in)',
-      templateHint: 'Copies the preset below as a starting point.',
-      systemPrompt: 'System prompt',
-      // Straight apostrophes, as in the app's en.json (Microsoft YaHei sets ’ full-width).
-      systemPromptHint: "Defines the AI's role and rules. The transcript is added automatically.",
-      systemPromptPlaceholder: "Describe the AI's role, behavior, and cleanup rules…",
-      shortcut: 'Shortcut (optional)',
-      shortcutHint: 'Use a combination such as Alt+1. It must include a modifier and applies after saving.',
-      notSet: 'Not set',
-      pressKeys: 'Press a key…',
-      clear: 'Clear shortcut',
-      missingBoth: 'Enter a name and prompt',
-      missingName: 'Enter a name',
-      missingPrompt: 'Enter a prompt',
-      restoreDefault: 'Restore default',
-      cancel: 'Cancel',
-      save: 'Save',
-      builtin: 'Built in',
-      edit: 'Edit',
-      delete: 'Delete',
-      draftName: 'Commit message',
-      draftPrompt: 'Turn what I said into one Conventional Commit message.\n- Type is one of feat, fix, refactor, docs, chore\n- Put the affected module in parentheses\n- One short imperative sentence, no full stop\n- Output only the message',
-      presets: [
-        ['intent', 'Intent cleanup', 'Removes fillers and repetition, and turns speech into clear, concise writing'],
-        ['faithful', 'Faithful cleanup', 'Fixes misheard words, formatting, and terms while keeping your wording and order'],
-        ['zh2en', 'Chinese to English', 'Speak Chinese; fixes recognition errors, then translates faithfully into English'],
-        ['casual', 'Conversational cleanup', 'Keeps your spoken tone with a light touch; good for instructing AI assistants'],
-      ],
-    },
-    compareTitle: 'One sentence, four presets',
-    compareLead: 'What you said on the left, and what each preset types on the right.',
+    lead: 'Say it once, and each preset types it its own way.',
+    facts: ['Every built-in prompt is open', 'Write your own presets', 'Switches per app'],
     inputLabel: 'What you said',
     input: 'Um, so I fixed the form validation on the login page, and uh, added the unit tests too, can you tell the product team it’s ready for testing tomorrow.',
     builtin: 'Built in',
@@ -183,21 +140,17 @@ export default {
       { name: 'Commit message', kind: 'custom', desc: 'Your own prompt', output: 'fix(login): repair form validation and add unit tests', mono: true },
       { name: 'Into Chinese', kind: 'custom', desc: 'Your own prompt', output: '登录页的表单校验已修复，单元测试也补上了。请告诉产品团队明天可以提测。' },
     ],
-    // The app's per-app rules (appPrompt.*): these nine apps are built in, matched by process name.
-    appRules: {
-      title: 'Per-app rules',
-      desc: 'Switch apps and the matching preset is used automatically.',
-      add: 'Add an app',
-      apps: [['teams', 'Teams'], ['outlook', 'Outlook'], ['kiro', 'Kiro'], ['codex', 'Codex'], ['vscode', 'VS Code'], ['cursor', 'Cursor'], ['notepad', 'Notepad'], ['wechat', 'WeChat'], ['qq', 'QQ']],
-    },
   },
   selfhost: {
     title: 'Self-host it for your team or company.',
     lead: 'The server is open source and runs on your own machine. The whole team shares one, and audio and text never leave your network.',
+    // The fourth fact is what is left of the three-row speed table (2026-11-10); the full numbers
+    // are in the README and llms.txt.
     facts: [
       ['container', 'One Docker Compose command'],
       ['link', 'Teammates just enter its address'],
       ['gauge', 'Concurrency limits and quotas built in'],
+      ['zap', '5 minutes of audio in about 3 s on an A10G'],
     ],
     diagram: {
       boundary: 'Company network',
@@ -211,17 +164,10 @@ export default {
     },
     github: 'View on GitHub',
     guide: 'Server guide',
-    perfTitle: 'Recognition speed',
-    perfCaption: 'NVIDIA A10G 24 GB · Qwen3-ASR-1.7B with vLLM',
-    perfHead: ['Audio length', 'ASR latency'],
-    perfRows: [
-      ['30 seconds', '~0.8 s'],
-      ['1 minute', '~1.6 s'],
-      ['5 minutes', '~3.0 s'],
-    ],
   },
-  // Where speech is recognized, then that mode's models (owner, 2026-10-18: the old title, lead and
-  // table cards were weak). The first field of a model is a file in server/web/img/logos/;
+  // Where speech is recognized (owner, 2026-10-18: the old title, lead and table cards were weak).
+  // Since 2026-11-10 the cards carry one line of cost and setup and no model lists; the models are
+  // one strip under the cards. The first field of a strip item is a file in server/web/img/logos/;
   // 'plug' marks a protocol entry with no brand.
   modes: {
     title: 'You choose where your speech is recognized.',
@@ -235,9 +181,7 @@ export default {
         head: 'Works offline',
         dest: 'On your PC',
         privacy: 'Audio never leaves your PC',
-        facts: [['Cost', 'Free'], ['Setup', 'Download one model, from 240 MB'], ['Speed', '9 s of speech in under 1 s on a CPU']],
-        modelsLabel: 'Models',
-        models: [['qwen', 'Qwen3-ASR'], ['alibaba', 'SenseVoice'], ['alibaba', 'Fun-ASR'], ['nvidia', 'Nemotron'], ['nvidia', 'Parakeet']],
+        line: 'Free. Download one model first, from 240 MB.',
       },
       {
         id: 'cloud',
@@ -245,9 +189,7 @@ export default {
         head: 'The big providers’ models',
         dest: 'Provider',
         privacy: 'Audio goes straight to the provider, not through SayIt',
-        facts: [['Cost', 'Pay the provider for usage'], ['Setup', 'That provider’s API key']],
-        modelsLabel: 'Providers',
-        models: [['doubao', 'Doubao'], ['qwen', 'Qwen'], ['mimo', 'Xiaomi MiMo'], ['openai', 'OpenAI'], ['gemini', 'Gemini'], ['groq', 'Groq'], ['openrouter', 'OpenRouter'], ['plug', 'OpenAI-compatible']],
+        line: 'Your own API key. Pay the provider for usage.',
       },
       {
         id: 'server',
@@ -256,15 +198,16 @@ export default {
         head: 'Talk right after install',
         dest: 'Server',
         privacy: 'Audio goes to the server you connect to and is not kept',
-        facts: [['Cost', 'The trial server is free, with limits'], ['Setup', 'Nothing']],
-        modelsLabel: 'Which server',
-        servers: [['SayIt trial server', 'Qwen3-ASR 1.7B, the default after install'], ['Your company’s server', 'On your own network, see Self-hosting above', '#self-host']],
+        line: 'The trial server is free, with limits.',
       },
     ],
-    ai: {
-      title: 'AI cleanup',
-      sub: 'After recognition a language model polishes the text, in every mode. Pick any of these, including Ollama on your PC.',
-      items: [['deepseek', 'DeepSeek'], ['qwen', 'Qwen'], ['doubao', 'Doubao'], ['zhipu', 'Zhipu GLM'], ['mimo', 'Xiaomi MiMo'], ['groq', 'Groq'], ['ollama', 'Ollama'], ['plug', 'OpenAI-compatible']],
+    // Recognition and AI cleanup in one row, each brand once. Local models go under their maker:
+    // Qwen includes the local Qwen3-ASR, SenseVoice stands for Alibaba's SenseVoice / Fun-ASR,
+    // Nemotron for NVIDIA's Nemotron / Parakeet.
+    strip: {
+      title: 'Models and providers',
+      sub: 'Pick recognition and AI cleanup separately. AI cleanup works in every mode.',
+      items: [['qwen', 'Qwen'], ['alibaba', 'SenseVoice'], ['nvidia', 'Nemotron'], ['doubao', 'Doubao'], ['mimo', 'Xiaomi MiMo'], ['openai', 'OpenAI'], ['gemini', 'Gemini'], ['deepseek', 'DeepSeek'], ['zhipu', 'Zhipu GLM'], ['groq', 'Groq'], ['openrouter', 'OpenRouter'], ['ollama', 'Ollama'], ['plug', 'OpenAI-compatible']],
     },
   },
   app: {

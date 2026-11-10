@@ -122,54 +122,12 @@ export default {
     note: '以上为示意，实际效果取决于识别模型和 AI 模型。',
   },
   rules: {
+    // 一节一屏（2026-11-10，对照豆包输入法页面后用户同意）：标题、一句话、三条短事实、一张分叉图。
+    // 原来右边那张「润色模式」编辑卡去掉了：下面「界面演示」的 AI 整理页本来就能改提示词，等于讲了两遍。
+    // 九个应用图标的「应用规则」并成第三条事实。
     title: '想要什么效果，提示词自己写。',
-    lead: '内置四种润色模式，提示词全部公开、随便改，也可以从零新建一个。',
-    points: ['内置模式的提示词全部公开，想改就改。', '新建一个：写提交信息、翻译、改成邮件口吻都行。', '给模式设个组合键，随时切换。'],
-    // App 里「AI 整理 → 润色模式」那张卡，逐字照抄 client/src/i18n/locales/zh-CN.json 的 promptPreset.*。
-    // 只放 App 里真有的东西：用户指出过「用于这些应用」「试一下」是网站自己编的（2026-10-16）。
-    card: {
-      title: '润色模式',
-      desc: '选择或自定义 AI 对语音文本的处理方式。',
-      langLabel: '内置 Prompt 语言',
-      langs: [['zh-CN', '中文'], ['en', 'English']],
-      lang: 'zh-CN',
-      new: '新建',
-      createTitle: '新建润色模式',
-      editTitle: '编辑「{name}」',
-      name: '名称',
-      namePlaceholder: '例如：会议纪要整理',
-      template: '以现有模式为模板（可选）',
-      noTemplate: '不使用模板，自己写',
-      builtinSuffix: '{name}（内置）',
-      templateHint: '选中后会把该模式的提示词填入下面，改几句就能用。',
-      systemPrompt: '系统提示词（System Prompt）',
-      systemPromptHint: '定义 AI 的角色和处理规则，语音文本会自动附加为用户消息。',
-      systemPromptPlaceholder: '定义 AI 的角色、行为和处理规则...',
-      shortcut: '快捷键（可选）',
-      shortcutHint: '设置组合键随时切换到此模式，如 Alt+1、Alt+2（需含修饰键）。保存后生效',
-      notSet: '未设置',
-      pressKeys: '按下按键...',
-      clear: '清空快捷键',
-      missingBoth: '请填写名称和提示词',
-      missingName: '请填写名称',
-      missingPrompt: '请填写提示词',
-      restoreDefault: '恢复默认',
-      cancel: '取消',
-      save: '保存',
-      builtin: '内置',
-      edit: '编辑',
-      delete: '删除',
-      draftName: '写成提交信息',
-      draftPrompt: '把我说的话写成一条 Conventional Commit 提交信息。\n- 类型从 feat、fix、refactor、docs、chore 里选\n- 括号里写改动的模块\n- 描述用中文，一句话，不加句号\n- 只输出提交信息本身',
-      presets: [
-        ['intent', '意图整理', '去掉口头禅和重复，整理成逻辑清楚、简洁的书面文字'],
-        ['faithful', '忠实校对', '只改错字、格式和术语，严格保留原话和语序'],
-        ['zh2en', '中翻英忠实校对', '说中文，先修正识别错误，再忠实翻译成英文'],
-        ['casual', '口语化整理', '保留说话的口吻，只做轻度整理，适合给 AI 助手下指令'],
-      ],
-    },
-    compareTitle: '同一句话，换个润色模式',
-    compareLead: '左边是你说的原话，右边是四种模式各自打出来的结果。',
+    lead: '同一句话，换个润色模式，打出来就不一样。',
+    facts: ['内置提示词全部公开', '自己新建模式', '按应用自动切换'],
     inputLabel: '你说的',
     input: '嗯，那个登录页的表单校验我修好了，然后单元测试也补上了，帮我跟产品说一声明天可以提测。',
     builtin: '内置',
@@ -180,22 +138,17 @@ export default {
       { name: '中翻英忠实校对', kind: 'builtin', desc: '修正后翻译成英文', output: 'I’ve fixed the form validation on the login page and added the unit tests. Please let the product team know it’s ready for testing tomorrow.' },
       { name: '写成提交信息', kind: 'custom', desc: '自己写的提示词', output: 'fix(login): 修复表单校验并补充单元测试', mono: true },
     ],
-    // App 的「应用规则」（appPrompt.*）：内置这九个应用，按进程名识别。
-    appRules: {
-      title: '应用规则',
-      desc: '切到不同应用，自动换用对应的润色模式。',
-      add: '自己添加',
-      apps: [['teams', 'Teams'], ['outlook', 'Outlook'], ['kiro', 'Kiro'], ['codex', 'Codex'], ['vscode', 'VS Code'], ['cursor', 'Cursor'], ['notepad', '记事本'], ['wechat', '微信'], ['qq', 'QQ']],
-    },
   },
   selfhost: {
     title: '团队和公司，本地化部署。',
     // 用户说这一节字太多（2026-10-16）：一句引导 + 三个短事实，其余交给示意图。
     lead: '服务端开源，装在公司自己的服务器上。全团队共用一台，语音和文字不出内网。',
+    // 第四条是原来那张三行速度表（A10G 上 30 秒 / 1 分钟 / 5 分钟），2026-11-10 缩成一句；完整数字在 README 和 llms.txt。
     facts: [
       ['container', 'Docker 一条命令启动'],
       ['link', '成员填个内网地址就能用'],
       ['gauge', '自带并发限制和用量额度'],
+      ['zap', '5 分钟录音，A10G 上约 3 秒出字'],
     ],
     diagram: {
       boundary: '公司内网',
@@ -209,19 +162,12 @@ export default {
     },
     github: '在 GitHub 上查看',
     guide: '服务器部署说明',
-    perfTitle: '识别速度',
-    perfCaption: 'NVIDIA A10G 24 GB · Qwen3-ASR-1.7B + vLLM',
-    perfHead: ['音频时长', '识别耗时'],
-    perfRows: [
-      ['30 秒', '约 0.8 秒'],
-      ['1 分钟', '约 1.6 秒'],
-      ['5 分钟', '约 3.0 秒'],
-    ],
   },
   modes: {
     // 用户说「本机、云端、服务器，都能用」「在语音引擎里切换，随时能换」和三张表格卡片都不好（2026-10-18）。
-    // 访客要决定的是「录音送去哪」：每张卡先说适合谁，再用一张小图画出录音走到哪，最后是这个模式能用的模型。
-    // models 的第一项是 server/web/img/logos/ 里的文件名；'plug' 是「OpenAI 兼容」这类没有品牌的协议入口。
+    // 访客要决定的是「录音送去哪」：每张卡先说适合谁，再用一张小图画出录音走到哪，最后一行费用和准备。
+    // 2026-11-10 起卡里不再列模型（对照豆包页面，这节有四十多个图标），模型统一放到卡片下面的 strip。
+    // strip 每项的第一个值是 server/web/img/logos/ 里的文件名；'plug' 是「OpenAI 兼容」这类没有品牌的协议入口。
     title: '录音在哪识别，你来选。',
     lead: '区别只有两点：录音送到哪里，用的是谁的模型。',
     pc: '你的电脑',
@@ -233,9 +179,7 @@ export default {
         head: '不联网也能用',
         dest: '本机识别',
         privacy: '录音不出电脑',
-        facts: [['费用', '免费'], ['准备', '下载一个模型，240 MB 起'], ['速度', '9 秒的话，普通 CPU 不到 1 秒']],
-        modelsLabel: '可选模型',
-        models: [['qwen', 'Qwen3-ASR'], ['alibaba', 'SenseVoice'], ['alibaba', 'Fun-ASR'], ['nvidia', 'Nemotron'], ['nvidia', 'Parakeet']],
+        line: '免费，先下载一个模型，240 MB 起',
       },
       {
         id: 'cloud',
@@ -243,9 +187,7 @@ export default {
         head: '用大厂的识别模型',
         dest: '服务商',
         privacy: '录音直接发给服务商，不经过 SayIt',
-        facts: [['费用', '按用量付给服务商，一个月几块钱'], ['准备', '服务商的 API Key']],
-        modelsLabel: '可选服务商',
-        models: [['doubao', '豆包'], ['qwen', '千问'], ['mimo', '小米 MiMo'], ['openai', 'OpenAI'], ['gemini', 'Gemini'], ['groq', 'Groq'], ['openrouter', 'OpenRouter'], ['plug', 'OpenAI 兼容']],
+        line: '用服务商的 API Key，一个月几块钱',
       },
       {
         id: 'server',
@@ -254,15 +196,15 @@ export default {
         head: '装好就能说',
         dest: '服务器',
         privacy: '录音发到你连的服务器，识别完不保留',
-        facts: [['费用', '体验服务器免费，有用量限制'], ['准备', '什么都不用']],
-        modelsLabel: '连哪台服务器',
-        servers: [['SayIt 体验服务器', 'Qwen3-ASR 1.7B，安装后默认连它'], ['公司自己的服务器', '内网部署，见上面「私有部署」', '#self-host']],
+        line: '体验服务器免费，有用量限制',
       },
     ],
-    ai: {
-      title: 'AI 整理',
-      sub: '识别完再交给大模型润色，三种模式都能用。任选一家，也能用本机的 Ollama。',
-      items: [['deepseek', 'DeepSeek'], ['qwen', '通义千问'], ['doubao', '豆包'], ['zhipu', '智谱 GLM'], ['mimo', '小米 MiMo'], ['groq', 'Groq'], ['ollama', 'Ollama'], ['plug', 'OpenAI 兼容']],
+    // 识别和 AI 整理合成一排，每家只出现一次。本地模型按出品方留一个名字：千问含本地的 Qwen3-ASR，
+    // SenseVoice 代表阿里的 SenseVoice / Fun-ASR，Nemotron 代表 NVIDIA 的 Nemotron / Parakeet。
+    strip: {
+      title: '支持的模型和服务商',
+      sub: '识别和 AI 整理分开选，三种模式都能开 AI 整理。',
+      items: [['qwen', '千问'], ['alibaba', 'SenseVoice'], ['nvidia', 'Nemotron'], ['doubao', '豆包'], ['mimo', '小米 MiMo'], ['openai', 'OpenAI'], ['gemini', 'Gemini'], ['deepseek', 'DeepSeek'], ['zhipu', '智谱 GLM'], ['groq', 'Groq'], ['openrouter', 'OpenRouter'], ['ollama', 'Ollama'], ['plug', 'OpenAI 兼容']],
     },
   },
 
