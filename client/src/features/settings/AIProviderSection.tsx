@@ -53,6 +53,7 @@ import {
   gradeLatency,
   isCheckFresh,
   isProfileComplete,
+  keyAfterProviderSwitch,
   profileSubtitle,
   profileTitle,
   preferredAiProviderValue,
@@ -443,8 +444,16 @@ export default function AIProviderSection() {
     // 换到一个已经配过的供应商，就用那份配过的地址，而不是清单里的默认值
     const boilerplate = draft.apiUrl.trim() === '' || draft.apiUrl.trim() === from.defaultUrl
     const url = boilerplate ? previous?.apiUrl || to.defaultUrl : draft.apiUrl
-    // 密钥：空着才自动带上同供应商已配过的那把，绝不覆盖用户已经填进去的
-    const apiKey = draft.apiKey.trim() === '' ? previous?.apiKey ?? '' : draft.apiKey
+    // 密钥跟着地址走：地址换到了别家，上一家的密钥一并换掉；用户自己粘的不动。
+    // 规则和踩过的坑见 keyAfterProviderSwitch
+    const apiKey = keyAfterProviderSwitch({
+      key: draft.apiKey,
+      fromProvider: draft.provider,
+      fromUrl: draft.apiUrl,
+      toUrl: url,
+      toSavedKey: previous?.apiKey ?? '',
+      profiles,
+    })
     // 模型清单同理：还全是上一家的样板值时才换成新家的推荐，用户自己敲的一律留着
     const stillBoilerplate = draftModels.length === 0
       || draftModels.every((m) => from.defaultModels.includes(m))

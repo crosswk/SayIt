@@ -211,6 +211,47 @@ export function blankProfile(providerValue = preferredAiProviderValue()): AiProf
 }
 
 /**
+ * 编辑框里换供应商时，密钥该变成什么。
+ *
+ * **密钥跟着地址走。** 原来的规则是「密钥框不空就绝不动」，为的是不覆盖用户自己粘的密钥。
+ * 但「新建」会自动带上当前启用那家的地址和密钥：当前用的是智谱，新建出来就装着智谱的密钥，
+ * 改选 DeepSeek 后地址和模型都换了，密钥却留着智谱那把 —— 测试只会报「密钥被拒绝」，
+ * 用户还会把它当成 DeepSeek 的密钥复制到别处（2026-11 实测，0.1.8 起就这样）。
+ *
+ * 所以：
+ *  - 密钥框空着 → 带上新供应商配过的那把（原来的行为）；
+ *  - 地址换到了另一台服务器上，且密钥是上一家配置里存着的那把 → 换成新供应商配过的那把，
+ *    新供应商没配过就清空。上一家的密钥在新服务器上不可能有效，清空至少会提示「缺密钥」；
+ *  - 其余一律不动：密钥是用户自己粘的（哪份配置里都没有），或者地址没换
+ *    （比如「OpenAI 兼容」填的就是 api.deepseek.com，换成 DeepSeek 卡后还是同一把能用的密钥）。
+ *
+ * `toUrl` 要传换完供应商之后的地址，`toSavedKey` 是新供应商最近一份配置的密钥（没有就是空串）。
+ */
+export function keyAfterProviderSwitch(input: {
+  key: string
+  fromProvider: string
+  fromUrl: string
+  toUrl: string
+  toSavedKey: string
+  profiles: AiProfile[]
+}): string {
+  const key = input.key.trim()
+  if (!key) return input.toSavedKey
+  const hostOf = (url: string): string => {
+    try {
+      return new URL(url.trim()).host.toLowerCase()
+    } catch {
+      return url.trim().toLowerCase()
+    }
+  }
+  if (hostOf(input.fromUrl) === hostOf(input.toUrl)) return input.key
+  const savedUnderPrevious = input.profiles.some(
+    (p) => p.provider === input.fromProvider && p.apiKey.trim() === key,
+  )
+  return savedUnderPrevious ? input.toSavedKey : input.key
+}
+
+/**
  * 端点的主机名，且**只在它不是这家供应商的默认地址时**才返回，否则空串。
  *
  * 卡片上要不要显示地址，取决于它能不能区分两张卡：用 DeepSeek 官方地址的那张，

@@ -11,6 +11,7 @@ import {
   gradeLatency,
   isCheckFresh,
   isProfileComplete,
+  keyAfterProviderSwitch,
   migrateLegacyProfiles,
   parseLegacyLatencies,
   parseProfiles,
@@ -388,6 +389,60 @@ describe('migrateLegacyProfiles', () => {
     expect(profiles.map((p) => p.model)).toEqual(['deepseek-flash'])
     expect(profiles[0].id).toBe(migrated.activeId)
     expect(mergedInto).toEqual({ 'legacy-deepseek-deepseek-v4-flash': migrated.activeId })
+  })
+})
+
+describe('keyAfterProviderSwitch', () => {
+  const ZHIPU_URL = 'https://open.bigmodel.cn/api/paas/v4'
+  const DEEPSEEK_URL = 'https://api.deepseek.com'
+  const saved: AiProfile[] = [
+    profile({ id: 'ds', provider: 'deepseek', apiUrl: DEEPSEEK_URL, apiKey: 'sk-deepseek' }),
+    profile({ id: 'zp', provider: 'zhipu', apiUrl: ZHIPU_URL, apiKey: 'zhipu-key', model: 'GLM-5.3-Flash' }),
+  ]
+  const fromZhipu = { fromProvider: 'zhipu', fromUrl: ZHIPU_URL, toUrl: DEEPSEEK_URL, profiles: saved }
+
+  /**
+   * 用户实际踩到的那次：启用的是智谱，点「新建」带上了智谱的密钥，改选 DeepSeek 后
+   * 地址和模型换了、密钥没换，存下来一张装着智谱密钥的 DeepSeek 卡。
+   */
+  it('新建时带过来的上一家密钥，换供应商后换成新供应商配过的那把', () => {
+    expect(keyAfterProviderSwitch({ ...fromZhipu, key: 'zhipu-key', toSavedKey: 'sk-deepseek' })).toBe('sk-deepseek')
+  })
+
+  it('新供应商没配过就清空，不留上一家的密钥', () => {
+    expect(keyAfterProviderSwitch({ ...fromZhipu, key: 'zhipu-key', toSavedKey: '' })).toBe('')
+  })
+
+  it('用户自己粘的密钥（哪份配置里都没有）不动', () => {
+    expect(keyAfterProviderSwitch({ ...fromZhipu, key: 'sk-typed-by-user', toSavedKey: 'sk-deepseek' }))
+      .toBe('sk-typed-by-user')
+  })
+
+  it('密钥框空着时带上新供应商配过的那把', () => {
+    expect(keyAfterProviderSwitch({ ...fromZhipu, key: '  ', toSavedKey: 'sk-deepseek' })).toBe('sk-deepseek')
+    expect(keyAfterProviderSwitch({ ...fromZhipu, key: '', toSavedKey: '' })).toBe('')
+  })
+
+  /** 「OpenAI 兼容」本来就填的 DeepSeek 地址，换成 DeepSeek 卡后还是同一台服务器、同一把能用的密钥。 */
+  it('地址没换到别的服务器时密钥不动', () => {
+    const compat = profile({ id: 'oc', provider: 'openai_compat', apiUrl: `${DEEPSEEK_URL}/v1`, apiKey: 'sk-same' })
+    expect(keyAfterProviderSwitch({
+      key: 'sk-same',
+      fromProvider: 'openai_compat',
+      fromUrl: `${DEEPSEEK_URL}/v1`,
+      toUrl: `${DEEPSEEK_URL}/v1`,
+      toSavedKey: '',
+      profiles: [compat],
+    })).toBe('sk-same')
+    // 只是写法不同（是否带 /v1）也算同一台
+    expect(keyAfterProviderSwitch({
+      key: 'sk-same',
+      fromProvider: 'openai_compat',
+      fromUrl: `${DEEPSEEK_URL}/v1`,
+      toUrl: DEEPSEEK_URL,
+      toSavedKey: 'sk-other',
+      profiles: [compat],
+    })).toBe('sk-same')
   })
 })
 
