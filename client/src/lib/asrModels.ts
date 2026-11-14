@@ -36,6 +36,7 @@ const ASR_DISPLAY_MODEL_MAP: Record<string, string> = {
   // 那条路才是准的 —— 这也正是 resolveAsrDisplayModel 要收 selectedModel 的原因。
   qwen_audio_stream: 'qwen-audio-3.1-asr-flash-streaming',
   mimo: 'mimo-v2.5-asr',
+  deepseek_asr: 'deepseek-asr',
   groq_whisper: 'whisper-large-v3-turbo',
   openai_transcribe: 'gpt-transcribe',
   openai_live_transcribe: 'gpt-live-transcribe',

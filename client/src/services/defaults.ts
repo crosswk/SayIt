@@ -77,7 +77,7 @@ export const DEFAULTS: Record<string, unknown> = {
   // ── ASR（云 API）──
   // 可选值以 features/settings/asrProviderCatalog.ts 的 ASR_PROVIDERS 为准：
   // 'doubao_v2' | 'qwen' | 'qwen_audio_stream' | 'qwen_realtime' | 'qwen_omni_35_*'
-  // | 'mimo' | 'groq_whisper' | 'openai_transcribe' | 'openai_live_transcribe'
+  // | 'mimo' | 'deepseek_asr' | 'groq_whisper' | 'openai_transcribe' | 'openai_live_transcribe'
   // | 'gemini_transcribe' | 'gemini_live_transcribe' | 'openrouter_transcribe'
   'cloudAsr.provider': 'doubao_v2',
   // 启用服务选定的模型。只有「同协议多模型」的服务（Groq / OpenAI）用得上，

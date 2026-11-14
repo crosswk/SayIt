@@ -46,7 +46,7 @@ Typing is often the slowest part of working with AI. SayIt turns speech into tex
 | **Cloud API mode** | The best balance for personal use | Your PC talks directly to the ASR and AI providers you configure. No SayIt server is involved. |
 | **Server mode** | Teams and managed deployments | Audio is processed by a SayIt backend you control—or by the public trial server for a quick start. |
 
-Local recognition ships seven GGUF models, with GPU acceleration when available: Parakeet Unified EN (fastest and most accurate for English), SenseVoice Small, Fun-ASR Nano, Nemotron 3.5 ASR (32 languages), and three Qwen3-ASR sizes. Cloud recognition supports Doubao, Qwen, OpenAI, Gemini, OpenRouter, Xiaomi MiMo, and Groq Whisper, plus any OpenAI-compatible service at an address you supply; AI cleanup works with DeepSeek, Qwen, Doubao, Zhipu GLM, MiMo, Groq, Ollama, and any OpenAI-compatible endpoint.
+Local recognition ships seven GGUF models, with GPU acceleration when available: Parakeet Unified EN (fastest and most accurate for English), SenseVoice Small, Fun-ASR Nano, Nemotron 3.5 ASR (32 languages), and three Qwen3-ASR sizes. Cloud recognition supports Doubao, Qwen, OpenAI, Gemini, OpenRouter, Xiaomi MiMo, DeepSeek, and Groq Whisper, plus any OpenAI-compatible service at an address you supply; AI cleanup works with DeepSeek, Qwen, Doubao, Zhipu GLM, MiMo, Groq, Ollama, and any OpenAI-compatible endpoint.
 
 ## A closer look
 

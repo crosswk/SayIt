@@ -43,6 +43,7 @@ SayIt 对豆包和千问 ASR 都做了流式优化——按住说话时，音频
 | Groq Whisper | 不发送 | 同 `/audio/transcriptions` 那一栏的原因。 |
 | OpenRouter | 不发送 | 它的两种请求形态都没有热词通道（multipart 那条接受 `prompt` 但忽略）。 |
 | 小米 MiMo | 不发送 | 协议有位置（OpenAI 对话式接口），SayIt 尚未接入。 |
+| DeepSeek ASR | 不发送 | 接口只收一个音频文件，没有热词或提示词字段。 |
 | OpenAI 兼容服务（自建 / 网关） | 取决于协议 | 探测为对话式接口（`/chat/completions`）时发送；探测为文件转写（`/audio/transcriptions`，自建 whisper.cpp、faster-whisper、FunASR 都是这套）时不发送。点「测试连接」会显示探到的是哪一种。 |
 | 本地模型（Qwen3-ASR / SenseVoice / Fun-ASR Nano） | 不发送 | 本地引擎迁到 GGML 之后没有热词通道。 |
 
@@ -132,7 +133,23 @@ Omni 都不支持实时字幕（整段说完再出结果）。
 > **热词支持**：千问 ASR 系列也已接入 SayIt 的热词功能。在「个性化」里配置的热词会作为上下文偏置随每次识别一起传给千问（流式版用 `corpus.text`，非流式与 Omni 用 system 上下文），有效提升专业术语、人名等识别准确率。
 
 
-## 4. 接入自建或第三方服务（OpenAI 兼容）
+## 4. DeepSeek ASR
+
+DeepSeek 2026 年 11 月开放的语音识别接口，可以和 DeepSeek 的 AI 润色用同一个 API Key。
+
+- 获取 API Key：[DeepSeek 开放平台](https://platform.deepseek.com/api_keys)
+- 在 SayIt 设置里选 DeepSeek ASR，填上 API Key 就能用，不需要填地址和模型。
+
+选它之前先看这几条限制：
+
+- **不支持实时字幕**，说完之后一次性识别。
+- **不发送热词**：接口没有热词或提示词字段。产品名、术语想写对，只能靠 AI 润色阶段的「热词注入提示词」补救。
+- **没有语种参数**：21 种语言自动识别，设置里选的识别语言对它不起作用。
+- **单次最长 2 分钟**：更长的录音由 SayIt 在停顿处切成几段同时识别，再按顺序拼起来。切口选在停顿最长的地方，不会把一句话从中间切开。
+
+我们拿十来条真实口述（中文夹着技术名词）和千问 qwen3-asr-flash 对比过：DeepSeek ASR 同音字错得更多，停顿处容易多出句号，短句出结果也慢一些（约 1 秒，千问约 0.5 秒）。所以它适合手上只有 DeepSeek 账号、不想再开一个平台的情况；追求准确率仍然推荐豆包或千问。
+
+## 5. 接入自建或第三方服务（OpenAI 兼容）
 
 内置清单之外的服务走「OpenAI 兼容服务」这张卡：自建的 whisper.cpp、faster-whisper、FunASR，以及各类聚合网关和中转站。
 
@@ -159,7 +176,7 @@ Omni 都不支持实时字幕（整段说完再出结果）。
 基础转写能通和热词生效是两件事，分开验：连通性测试只能证明协议对得上、请求能到达服务，证明不了热词参与了识别。
 
 
-## 5. 价格
+## 6. 价格
 
 下面是各个模型按需使用的价格参考。
 
@@ -170,5 +187,6 @@ Omni 都不支持实时字幕（整段说完再出结果）。
 | 千问 qwen3-asr-flash（非流式）          | 0.79 元/小时    | 10 小时（90天内）      |
 | 千问 qwen3-asr-flash-realtime（流式）   | 1.19 元/小时    | 10 小时（90天内）      |
 | 千问 Omni 系列                          | 按 Token 计费   | 100 万 Token（90天内） |
+| DeepSeek ASR                            | 0.39 元/小时（限时五折，原价 0.78） | 以控制台为准 |
 
 阿里调价和推新模型比这份文档更新得勤，Audio 3.x 与 Omni 各代的单价请直接看[千问价格文档](https://help.aliyun.com/zh/model-studio/model-pricing#95f0464a10q5c)——这里只写会不会按时长还是按 Token 收费，那个口径比数字稳定。Omni 按 Token 计费时每秒音频约 25 token，可用来粗估。

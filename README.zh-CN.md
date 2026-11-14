@@ -176,7 +176,7 @@ cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000
 - **全局语音输入** — 在任何应用中按下快捷键即可口述，文字自动插入光标位置
 - **AI 智能润色** — 口语自动转书面语，去口癖、纠错、分段，Prompt 完全可自定义
 - **上下文感知**（默认关闭）— 开启后会读取光标附近的文本，让新说的话在语气、术语和格式上与前后文衔接；先选中一段文字再开口，说出的话会被当成对它的编辑指令（翻译、精简、改写或提问），处理完直接替换选中内容。选区编辑默认沿用当前 AI 模型，也可在「AI 整理 → 上下文感知」中选择单独的已保存模型。密码框会自动跳过
-- **多种语音识别** — 云端可选豆包、千问、OpenAI、Gemini、OpenRouter、小米 MiMo、Groq Whisper，也可以填自己的地址接入任意 OpenAI 兼容服务；本地离线识别有 7 档 GGUF 模型（Parakeet Unified EN、SenseVoice、Fun-ASR Nano、Nemotron 3.5、Qwen3-ASR 三档），可用显卡加速
+- **多种语音识别** — 云端可选豆包、千问、OpenAI、Gemini、OpenRouter、小米 MiMo、DeepSeek、Groq Whisper，也可以填自己的地址接入任意 OpenAI 兼容服务；本地离线识别有 7 档 GGUF 模型（Parakeet Unified EN、SenseVoice、Fun-ASR Nano、Nemotron 3.5、Qwen3-ASR 三档），可用显卡加速
 - **中英双语界面** — 默认跟随系统语言，也可以在设置里随时切换
 - **热词增强** — 自定义专业术语词表；豆包、千问、服务器模式会参与 ASR 识别偏置，本地模型和不支持热词的云端服务则通过 AI 整理/文本处理做后处理纠错，热词页会说明当前配置属于哪种
 - **悬浮窗反馈** — 录音状态、波形动画、按住时长实时可见；豆包、千问实时 ASR 下还能边说边出字幕
@@ -215,7 +215,7 @@ SayIt/
 | 桌面客户端　　 | Tauri v2、React、TypeScript、Tailwind CSS　　　　　　|
 | 客户端系统集成 | Rust（全局键盘钩子、剪贴板、SQLite）　　　　　　　　 |
 | 后端服务　　　 | Python、FastAPI、WebSocket　　　　　　　　　　　　　 |
-| 语音识别　　　 | Qwen3-ASR + vLLM / 豆包 / 千问 / OpenAI / Gemini / OpenRouter / MiMo / Groq / ggml (GGUF) |
+| 语音识别　　　 | Qwen3-ASR + vLLM / 豆包 / 千问 / OpenAI / Gemini / OpenRouter / MiMo / DeepSeek / Groq / ggml (GGUF) |
 | AI 润色　　　　| DeepSeek / 通义千问 / 豆包 / 智谱 GLM / 小米 MiMo / Groq / Ollama / OpenAI 兼容 |
 | 部署　　　　　 | Docker Compose、NVIDIA Container Toolkit　　　　　　 |
 | 开发　　　　　 | 整个项目使用 Claude Opus 开发　　　　　　　　　　　　|

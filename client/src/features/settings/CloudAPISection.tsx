@@ -918,6 +918,11 @@ export default function CloudAPISection() {
             {draftPlatform === 'qwen' && draft.apiKey.trim() && !/^sk-/.test(draft.apiKey.trim()) && (
               <FormatHint text={t('asr.hint.bailianKey')} />
             )}
+            {/* 最常见的填错是从 AI 服务那边复制了别家的密钥（智谱、豆包的都不是 sk- 开头），
+                不提示的话只能等测试报「密钥被拒绝」才发现 */}
+            {draftPlatform === 'deepseek' && draft.apiKey.trim() && !/^sk-/.test(draft.apiKey.trim()) && (
+              <FormatHint text={t('asr.hint.deepseekKey')} />
+            )}
             {/* 密钥不是凭空出现的：说一句它从哪来，免得用户以为自己看错了 */}
             {draftKeyInherited && (
               <p className="mt-1 text-[11px] text-muted-foreground">

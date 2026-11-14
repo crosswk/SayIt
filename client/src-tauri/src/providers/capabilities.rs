@@ -145,6 +145,7 @@ pub const ALL_ASR_PROVIDERS: &[&str] = &[
     "qwen_omni",
     "qwen_chat_audio",
     "mimo",
+    "deepseek_asr",
     "groq_whisper",
     "openai_transcribe",
     "openai_live_transcribe",
@@ -197,6 +198,10 @@ fn buffered_delivery(provider: &str, extra: &Value) -> HotwordDelivery {
         // asr_mimo：OpenAI chat/completions 兼容，协议有 instruction 位置
         //（asr_openai_chat_audio 就是这么做的），只是这份实现没接。
         "mimo" => HotwordDelivery::NotWiredUp,
+        // asr_deepseek：/v1/tools/asr 的 multipart 只有一个 file 字段，没有 prompt、
+        // 没有词表（官方文档的请求参数就这一个）。多塞字段它不报错，但那只说明
+        // 「被收下」，不说明「被用上」，所以不往里塞。
+        "deepseek_asr" => HotwordDelivery::ProtocolHasNoSlot,
         // asr_groq：`/audio/transcriptions` 的 `prompt` 字段是热词的天然位置
         //（OpenAI 的 prompting 指南把专有名词和标点列在一起），但我们拿它换了中文
         // 标点。组合两者尚未验证 —— 验证工具是现成的
@@ -423,7 +428,7 @@ mod tests {
     /// 没有流式实现的那些家，两个字段要给同一个答案。
     #[test]
     fn providers_without_a_streaming_path_report_the_same_answer_twice() {
-        for provider in ["qwen", "mimo", "groq_whisper", "openrouter_transcribe"] {
+        for provider in ["qwen", "mimo", "deepseek_asr", "groq_whisper", "openrouter_transcribe"] {
             let c = cap(provider);
             assert!(!c.has_streaming_path, "{}", provider);
             assert_eq!(c.streaming, c.buffered, "{}", provider);
@@ -436,6 +441,11 @@ mod tests {
         // OpenRouter 两种形态都没有 prompt 通道
         assert_eq!(
             cap("openrouter_transcribe").buffered,
+            HotwordDelivery::ProtocolHasNoSlot,
+        );
+        // DeepSeek 的 ASR 接口只有一个 file 字段
+        assert_eq!(
+            cap("deepseek_asr").buffered,
             HotwordDelivery::ProtocolHasNoSlot,
         );
         // asr_groq 有 prompt 字段，只是被标点引导占用了

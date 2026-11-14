@@ -21,6 +21,10 @@ const MIN_SILENCE_MS: usize = 450;
 /// 起止各留约 450ms，避免切掉辅音、轻声开头和句尾。
 const SPEECH_PAD_MS: usize = 450;
 
+/// 给云端长录音找切口时用的停顿与留白（见 `detect_speech_for_cuts`）。
+const CUT_MIN_SILENCE_MS: usize = 250;
+const CUT_SPEECH_PAD_MS: usize = 100;
+
 /// 返回每一段人声（已含首尾留白），按时间排序、互不重叠。
 ///
 /// 空列表明确表示没有检测到人声，调用方应跳过 ASR；`Err` 表示无法可靠判断是否
@@ -29,6 +33,40 @@ const SPEECH_PAD_MS: usize = 450;
 pub fn detect_speech_segments(
     samples: &[f32],
     sample_rate: usize,
+) -> Result<Vec<Range<usize>>, String> {
+    let ranges = run_vad(samples, sample_rate, MIN_SILENCE_MS, SPEECH_PAD_MS)?;
+
+    if let (Some(first), Some(last)) = (ranges.first(), ranges.last()) {
+        log::debug!(
+            "Silero VAD: {:.2}s -> {:.2}s, speech_segments={}",
+            samples.len() as f64 / sample_rate as f64,
+            (last.end - first.start) as f64 / sample_rate as f64,
+            ranges.len(),
+        );
+    }
+    Ok(ranges)
+}
+
+/// 同一个模型、同一个阈值，但停顿和留白放细，**只用来给长录音挑切口**。
+///
+/// `detect_speech_segments` 要回答的是「有没有人声、首尾在哪」，留白放得宽（0.45 s）：
+/// 一秒以内的停顿两边各加 0.45 s 就并成一段了。而口述里句与句之间多半就停零点几秒，
+/// 用那套参数几乎看不到停顿，切口只能退到「最安静的 100 ms」。
+/// 这里 0.25 s 以上的停顿就分段、两边各留 0.1 s，句间停顿基本都能露出来。
+///
+/// 结果不用来判断有没有人声，所以没有那边「空列表 = 跳过识别」的含义。
+pub fn detect_speech_for_cuts(
+    samples: &[f32],
+    sample_rate: usize,
+) -> Result<Vec<Range<usize>>, String> {
+    run_vad(samples, sample_rate, CUT_MIN_SILENCE_MS, CUT_SPEECH_PAD_MS)
+}
+
+fn run_vad(
+    samples: &[f32],
+    sample_rate: usize,
+    min_silence_ms: usize,
+    speech_pad_ms: usize,
 ) -> Result<Vec<Range<usize>>, String> {
     if samples.is_empty() {
         return Ok(Vec::new());
@@ -48,27 +86,17 @@ pub fn detect_speech_segments(
             sampling_rate: sample_rate,
             threshold: SPEECH_THRESHOLD,
             min_speech_duration_ms: MIN_SPEECH_MS,
-            min_silence_duration_ms: MIN_SILENCE_MS,
-            speech_pad_ms: SPEECH_PAD_MS,
+            min_silence_duration_ms: min_silence_ms,
+            speech_pad_ms,
             window_size_samples,
             ..Default::default()
         },
     );
 
-    let ranges = normalize_segments(
+    Ok(normalize_segments(
         segments.iter().map(|s| s.start..s.end),
         samples.len(),
-    );
-
-    if let (Some(first), Some(last)) = (ranges.first(), ranges.last()) {
-        log::debug!(
-            "Silero VAD: {:.2}s -> {:.2}s, speech_segments={}",
-            samples.len() as f64 / sample_rate as f64,
-            (last.end - first.start) as f64 / sample_rate as f64,
-            ranges.len(),
-        );
-    }
-    Ok(ranges)
+    ))
 }
 
 /// 截到音频长度以内、丢掉空段、按起点排序，并把重叠或首尾相接的段合并。
@@ -158,6 +186,89 @@ fn split_overlong(samples: &[f32], chunk: Range<usize>, max_len: usize, out: &mu
         start = best_cut;
     }
     out.push(start..chunk.end);
+}
+
+/// 把整段录音切成首尾相接、每块不超过 `max_len` 个采样的几块，切口落在停顿正中。
+///
+/// 给单次时长有上限的云端接口用（DeepSeek 一次最长 120 秒）。和上面给本地识别用的
+/// `plan_chunks` 有三处刻意的不同：
+///
+/// - **不丢音频**。`plan_chunks` 之前已经用 VAD 判过有人声，块之间的长停顿直接扔掉。
+///   这里 VAD 只负责挑切口，块与块首尾相接、覆盖整段录音：VAD 漏判的轻声照样发出去，
+///   不会因为它判错了就少几个字。
+/// - **挑最长的停顿，不挑第一个装不下的停顿**。贪心拼块会切在「恰好超长之前的那个停顿」，
+///   那很可能只是句中换气。这里在每块的 [`min_len`, `max_len`] 窗口里挑最长的那个，
+///   它最可能在两句话之间；切在正中，两边各留半截静音。
+/// - 窗口里一个停顿都没有（一口气说了一分多钟，或者背景太吵、VAD 分不出停顿），
+///   才退到窗口里最安静的 100 ms，和 `split_overlong` 同一招。
+///
+/// `segments` 可以为空（VAD 失败时调用方就这么传），那就每一刀都找最安静的地方。
+pub fn plan_contiguous_chunks(
+    samples: &[f32],
+    sample_rate: usize,
+    segments: &[Range<usize>],
+    min_len: usize,
+    max_len: usize,
+) -> Vec<Range<usize>> {
+    let total = samples.len();
+    if max_len == 0 || total <= max_len {
+        return vec![0..total];
+    }
+    // 窗口至少要有一个采样宽，否则下面挑不出切口、也就没法保证每一刀都往前走
+    let min_len = min_len.clamp(1, max_len - 1);
+    let segments = normalize_segments(segments.iter().cloned(), total);
+    let pauses: Vec<Range<usize>> = segments
+        .windows(2)
+        .map(|pair| pair[0].end..pair[1].start)
+        .filter(|gap| gap.start < gap.end)
+        .collect();
+
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while total - start > max_len {
+        let lo = start + min_len;
+        let hi = start + max_len;
+        let middle = |gap: &Range<usize>| gap.start + (gap.end - gap.start) / 2;
+        // 一样长时 max_by_key 取最后一个，块就尽量长、总块数尽量少
+        let longest = pauses
+            .iter()
+            .filter(|gap| (lo..=hi).contains(&middle(*gap)))
+            .max_by_key(|gap| gap.end - gap.start);
+        let cut = match longest {
+            Some(gap) => middle(gap),
+            None => quietest_point(samples, sample_rate, lo, hi),
+        };
+        chunks.push(start..cut);
+        start = cut;
+    }
+    chunks.push(start..total);
+    chunks
+}
+
+/// [lo, hi] 里最安静的 100 ms 的正中。
+///
+/// 步长 50 ms，比 `split_overlong` 的 100 ms 细一倍：这里的窗口有几十秒，多算一倍也只是
+/// 几毫秒，换来的是切口更贴近真正的静音。全段一样响时取第一个，块最短也有 `min_len`。
+fn quietest_point(samples: &[f32], sample_rate: usize, lo: usize, hi: usize) -> usize {
+    let frame = (sample_rate / 10).max(1);
+    let hop = (frame / 2).max(1);
+    let end = hi.min(samples.len());
+    let mut best_cut = hi;
+    let mut best_level = f32::MAX;
+    let mut frame_start = lo;
+    while frame_start + frame <= end {
+        let level = samples[frame_start..frame_start + frame]
+            .iter()
+            .map(|s| s.abs())
+            .sum::<f32>()
+            / frame as f32;
+        if level < best_level {
+            best_level = level;
+            best_cut = frame_start + frame / 2;
+        }
+        frame_start += hop;
+    }
+    best_cut
 }
 
 #[cfg(test)]
@@ -272,6 +383,91 @@ mod tests {
         }
         let chunks2 = plan_chunks(&audio2, &[0..50 * S], 30 * S);
         assert_eq!(chunks2[0].end, 25 * S + 800, "{chunks2:?}");
+    }
+
+    /// 首尾相接、一个采样都不丢、每块不超长。三条一起断言，任何一条坏了都是丢字或 400。
+    fn assert_contiguous(chunks: &[Range<usize>], total: usize, max_len: usize) {
+        assert_eq!(chunks.first().unwrap().start, 0, "{chunks:?}");
+        assert_eq!(chunks.last().unwrap().end, total, "{chunks:?}");
+        for pair in chunks.windows(2) {
+            assert_eq!(pair[0].end, pair[1].start, "块之间有缝：{chunks:?}");
+        }
+        for c in chunks {
+            assert!(c.end - c.start <= max_len, "块超长：{c:?}");
+            assert!(c.start < c.end, "空块：{chunks:?}");
+        }
+    }
+
+    #[test]
+    fn contiguous_chunks_leave_audio_within_the_limit_whole() {
+        let audio = vec![0.1; 100 * S];
+        assert_eq!(
+            plan_contiguous_chunks(&audio, SR, &[], 60 * S, 110 * S),
+            vec![0..100 * S],
+        );
+    }
+
+    /// 300 s：大部分句间停顿 0.5 s，95 s 和 205 s 处各有一个 2 s 的长停顿。
+    /// 每一刀都要切在窗口 [60 s, 110 s] 里**最长**的那个停顿正中，而不是第一个停顿。
+    #[test]
+    fn contiguous_chunks_cut_in_the_middle_of_the_longest_pause() {
+        let half = S / 2;
+        let audio = vec![0.1; 300 * S];
+        let segments = vec![
+            0..30 * S,
+            30 * S + half..60 * S,
+            60 * S + half..95 * S,
+            97 * S..130 * S,
+            130 * S + half..160 * S,
+            160 * S + half..205 * S,
+            207 * S..240 * S,
+            240 * S + half..270 * S,
+            270 * S + half..300 * S,
+        ];
+        let chunks = plan_contiguous_chunks(&audio, SR, &segments, 60 * S, 110 * S);
+        assert_eq!(chunks, vec![0..96 * S, 96 * S..206 * S, 206 * S..300 * S]);
+        assert_contiguous(&chunks, audio.len(), 110 * S);
+    }
+
+    /// 一口气说 250 s、VAD 分不出停顿：退到窗口里最安静的 100 ms，切在它正中。
+    #[test]
+    fn contiguous_chunks_fall_back_to_the_quietest_point_without_pauses() {
+        let mut audio = vec![0.3; 250 * S];
+        for s in &mut audio[80 * S..80 * S + 1600] {
+            *s = 0.01;
+        }
+        // 一整段人声，和 VAD 失败时传空列表，两种都没有停顿可挑
+        for segments in [vec![0..250 * S], Vec::new()] {
+            let chunks = plan_contiguous_chunks(&audio, SR, &segments, 60 * S, 110 * S);
+            assert_eq!(chunks[0], 0..80 * S + 800, "{chunks:?}");
+            assert_contiguous(&chunks, audio.len(), 110 * S);
+        }
+    }
+
+    /// 走生产路径：真实语音中间插 1 秒静音，细粒度 VAD 要能把它认成停顿，
+    /// 切口落在这 1 秒里，而不是切进说话的地方。
+    #[test]
+    fn real_speech_is_cut_inside_the_inserted_pause() {
+        let speech = read_test_speech();
+        // 一句话重复到 70 s 以上，每遍之间不留空，只有 64 s 处插一段 1 s 静音
+        let mut audio = Vec::new();
+        let mut pause = 0..0;
+        while audio.len() < 130 * SR {
+            if pause.is_empty() && audio.len() >= 64 * SR {
+                let at = audio.len();
+                audio.extend(std::iter::repeat(0.0).take(SR));
+                pause = at..audio.len();
+            }
+            audio.extend_from_slice(&speech);
+        }
+        let segments = detect_speech_for_cuts(&audio, SR).unwrap();
+        let chunks = plan_contiguous_chunks(&audio, SR, &segments, 60 * SR, 110 * SR);
+        assert_contiguous(&chunks, audio.len(), 110 * SR);
+        let first_cut = chunks[0].end;
+        assert!(
+            pause.contains(&first_cut),
+            "切口 {first_cut} 没落在插入的静音 {pause:?} 里",
+        );
     }
 
     #[test]

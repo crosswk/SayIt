@@ -67,6 +67,7 @@ function cloudProviderShort(provider: string): string {
     case 'qwen_omni_flash':
     case 'qwen_omni_turbo': return t('modeStatus.qwenOmni')
     case 'mimo': return 'MiMo'
+    case 'deepseek_asr': return 'DeepSeek'
     case 'groq_whisper': return 'Groq'
     case 'openai_transcribe': return 'OpenAI'
     case 'openai_live_transcribe': return 'OpenAI Live'

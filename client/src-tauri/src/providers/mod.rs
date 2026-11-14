@@ -13,6 +13,7 @@ pub mod asr_doubao_realtime;
 pub mod asr_qwen;
 pub mod asr_qwen_omni;
 pub mod asr_mimo;
+pub mod asr_deepseek;
 pub mod asr_groq;
 pub mod asr_gemini;
 pub mod asr_gemini_live;

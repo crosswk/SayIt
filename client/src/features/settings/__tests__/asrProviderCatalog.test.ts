@@ -68,6 +68,8 @@ describe('ASR_PROVIDERS 结构性不变量', () => {
   it('每个模型的 provider 都在 Rust 侧登记过', () => {
     const registered = new Set([
       'doubao_v2', 'qwen', 'qwen_realtime', 'qwen_audio_stream', 'qwen_omni', 'mimo',
+      // /v1/tools/asr，长录音在 Rust 侧切段（asr_deepseek.rs）
+      'deepseek_asr',
       'groq_whisper', 'openai_transcribe', 'openai_live_transcribe',
       'gemini_transcribe', 'gemini_live_transcribe', 'openrouter_transcribe',
       // chat/completions + input_audio 那一套（asr_openai_chat_audio.rs）

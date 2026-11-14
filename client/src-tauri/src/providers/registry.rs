@@ -2,9 +2,10 @@
 
 use super::types::*;
 use super::{
-    ai_ollama, ai_openai_compat, asr_doubao, asr_doubao_stream, asr_gemini, asr_gemini_live,
-    asr_groq, asr_mimo, asr_openai_chat_audio, asr_openai_compat, asr_openai_realtime,
-    asr_openrouter, asr_qwen, asr_qwen_audio_stream, asr_qwen_omni, asr_qwen_realtime,
+    ai_ollama, ai_openai_compat, asr_deepseek, asr_doubao, asr_doubao_stream, asr_gemini,
+    asr_gemini_live, asr_groq, asr_mimo, asr_openai_chat_audio, asr_openai_compat,
+    asr_openai_realtime, asr_openrouter, asr_qwen, asr_qwen_audio_stream, asr_qwen_omni,
+    asr_qwen_realtime,
 };
 use crate::error_protocol;
 
@@ -141,6 +142,18 @@ pub async fn cloud_transcribe(request: CloudTranscribeRequest) -> Result<AsrResu
         }
         "mimo" => {
             asr_mimo::transcribe(
+                &request.audio_b64,
+                request.sample_rate,
+                config,
+                &request.hotwords,
+            )
+            .await
+        }
+        // DeepSeek 的 /v1/tools/asr：multipart 只传 file，单次最长 120 秒，
+        // 超长录音在 asr_deepseek 里按停顿切段并发。别并进下面 asr_groq 那组 ——
+        // 路径、字段都不是 /audio/transcriptions 那一套。
+        "deepseek_asr" => {
+            asr_deepseek::transcribe(
                 &request.audio_b64,
                 request.sample_rate,
                 config,
@@ -351,6 +364,7 @@ pub async fn test_asr_connection(config: AsrProviderConfig) -> Result<TestResult
         "qwen_audio_stream" => Ok(asr_qwen_audio_stream::test_connection(&config).await),
         "qwen_omni" => Ok(asr_qwen_omni::test_connection(&config).await),
         "mimo" => Ok(asr_mimo::test_connection(&config).await),
+        "deepseek_asr" => Ok(asr_deepseek::test_connection(&config).await),
         "groq_whisper" | "openai_transcribe" | "openai_compat_transcribe" => {
             Ok(asr_groq::test_connection(&config).await)
         }
