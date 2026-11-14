@@ -13,6 +13,7 @@ import {
   AI_LOG_SOURCE,
   clearRuntimeEvents,
   getRuntimeEvents,
+  SETTINGS_EVENT_MODEL_RENAMED,
 } from '../debugLog'
 
 interface MirroredPayload {
@@ -77,5 +78,28 @@ describe('AI 事件必须真的穿过落盘过滤层', () => {
   it('warn 级别不受白名单限制（自配 AI 失败详情靠它落盘）', () => {
     addRuntimeEvent('warn', 'server', 'Custom AI cleanup failed; using raw ASR text', { error: 'boom' })
     expect(mirroredMessages()).toContain('Custom AI cleanup failed; using raw ASR text')
+  })
+})
+
+/**
+ * 启动时换掉下线模型名那条事件。它最早写成普通文案的 info，执行了却哪儿都没留下：
+ * settings 来源的 info 不在白名单里（2026-11 开发版实测，sayit.log 里一个字都没有）。
+ */
+describe('启动时改配置的事件必须留痕', () => {
+  beforeEach(() => {
+    mocks.appendDebugLog.mockClear()
+    clearRuntimeEvents()
+  })
+
+  it('换模型名的事件进主日志，也进内存运行事件', () => {
+    addRuntimeEvent('info', 'settings', SETTINGS_EVENT_MODEL_RENAMED, { scope: 'runtime', from: 'deepseek-chat', to: 'deepseek-flash' })
+    expect(mirroredMessages()).toContain(SETTINGS_EVENT_MODEL_RENAMED)
+    expect(getRuntimeEvents().some((e) => e.message === SETTINGS_EVENT_MODEL_RENAMED)).toBe(true)
+  })
+
+  it('settings 来源的其它 info 仍然被过滤掉', () => {
+    addRuntimeEvent('info', 'settings', 'Saved a setting', { key: 'theme' })
+    expect(mirroredMessages()).not.toContain('Saved a setting')
+    expect(getRuntimeEvents().some((e) => e.message === 'Saved a setting')).toBe(false)
   })
 })

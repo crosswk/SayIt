@@ -8,14 +8,16 @@ SayIt 已对接国内常用的 AI 服务商（通义千问、DeepSeek、豆包�
 
 ## 1. 推荐方案
 
-AI 润色模型推荐使用 **deepseek-v4-flash** 质量好、价格低、速度可接受。
+AI 润色模型推荐使用 **deepseek-flash** 质量好、价格低、速度可接受。
 
 如果对延迟极度敏感（需要 <500ms），可以用通义千问 qwen3.6-flash，速度最快但准确度稍微差点。
 
 | 供应商　　　 | 模型　　　　　　　| 短文本 | 长文本（~200字） | 输入价格　　　　 | 输出价格　　　　　|
 | --------------| -------------------| --------| ------------------| ------------------| -------------------|
-| **DeepSeek** | deepseek-v4-flash | 803ms　| 2089ms　　　　　 | 1 元/百万Token　 | 2 元/百万Token　　|
+| **DeepSeek** | deepseek-flash　　| 803ms　| 2089ms　　　　　 | 1~2 元/百万Token | 4~8 元/百万Token　|
 | 通义千问　　 | qwen3.6-flash　　 | 393ms　| 1308ms　　　　　 | 1.8 元/百万Token | 10.8 元/百万Token |
+
+DeepSeek 分空闲、高峰两档价格，高峰是北京时间工作日 9:00-12:00 和 14:00-18:00，其余时段半价；表里输入价格按未命中缓存算。以 [DeepSeek 官网价格页](https://api-docs.deepseek.com/zh-cn/quick_start/pricing) 为准。
 
 ## 2. 配置指南
 
@@ -24,7 +26,7 @@ AI 供应商建议直接使用官方 API。第三方中转站延迟普遍更高�
 ### DeepSeek（推荐）
 
 - API 地址：`https://api.deepseek.com`
-- 模型：`deepseek-v4-flash`
+- 模型：`deepseek-flash`（旧名 `deepseek-v4-flash`、`deepseek-chat` 目前还能调，只是 DeepSeek 暂时转发到新模型；SayIt 启动时会把已有配置改成新名字）
 - 获取 API Key：[platform.deepseek.com](https://platform.deepseek.com/api_keys)
 
 ![DeepSeek 获取API Key](images/ai/deepseek-api.png)
@@ -53,4 +55,4 @@ SayIt 会自动关闭思考，无需用户配置：请求里会带上各家格�
 
 **质量对比**
 
-DeepSeek 和通义千问都能正确去口癖、识别列表结构、纠正专有名词大小写（DeepSeek、ChatGPT、OpenAI 等）。DeepSeek V4 Flash 在专有名词纠正和格式化方面更稳定，输出更简洁。
+DeepSeek 和通义千问都能正确去口癖、识别列表结构、纠正专有名词大小写（DeepSeek、ChatGPT、OpenAI 等）。DeepSeek Flash 在专有名词纠正和格式化方面更稳定，输出更简洁。

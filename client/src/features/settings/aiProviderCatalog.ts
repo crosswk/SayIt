@@ -41,7 +41,8 @@ export const AI_PROVIDERS: AiProvider[] = [
     value: 'deepseek',
     label: 'DeepSeek',
     defaultUrl: 'https://api.deepseek.com',
-    defaultModels: ['deepseek-v4-flash'],
+    // 2026-09 起官方名字是 deepseek-flash（V4.1 Flash），旧名见 DEEPSEEK_RETIRED_MODELS
+    defaultModels: ['deepseek-flash'],
     consoleUrl: 'https://platform.deepseek.com/api_keys',
   },
   {
@@ -514,4 +515,94 @@ export function migrateLegacyProfiles(
     ?? profiles[0]
 
   return { profiles, activeId: matched?.id ?? '' }
+}
+
+// ── 已下线的模型名 ────────────────────────────────────────────────────────
+
+/**
+ * DeepSeek 已下线的模型名 → 接替它的那个。
+ *
+ * 2026-09-10 起 DeepSeek 只列 `deepseek-flash`（V4.1 Flash）和 `deepseek-v4-pro` 两个名字，
+ * 旧名「暂时路由」到 deepseek-flash；`deepseek-chat` / `deepseek-reasoner` 更早，
+ * 2026-04-24 就公告 7 月 24 日停用。2026-11 实测这几个旧名都还能调，响应里的 model
+ * 字段都是 deepseek-flash；但哪天真停了，按旧默认配过 DeepSeek 的用户 AI 整理会直接报错。
+ *
+ * `deepseek-reasoner` 也换成 deepseek-flash，行为不变：我们对 DeepSeek 一律发
+ * `thinking.type=disabled`，实测 reasoner 收到它同样不思考。
+ */
+const DEEPSEEK_RETIRED_MODELS: Record<string, string> = {
+  'deepseek-v4-flash': 'deepseek-flash',
+  'deepseek-v4-flash-vision-exp': 'deepseek-flash',
+  'deepseek-chat': 'deepseek-flash',
+  'deepseek-reasoner': 'deepseek-flash',
+}
+
+/**
+ * 这条服务的模型名该换成什么（不用换就原样返回）。
+ *
+ * 只认 **DeepSeek 官方地址**，DeepSeek 卡和「OpenAI 兼容」卡都算。中转站、聚合网关上的
+ * 模型名是对方定的，它们未必认 deepseek-flash，照改只会把一份能用的配置改坏。
+ * DeepSeek 卡地址空着时按官方地址算（保存时会补上默认值）。
+ */
+export function upgradeRetiredAiModel(provider: string, apiUrl: string, model: string): string {
+  if (provider !== 'deepseek' && provider !== 'openai_compat') return model
+  const url = apiUrl.trim() || (provider === 'deepseek' ? findProvider('deepseek').defaultUrl : '')
+  let hostname = ''
+  try {
+    hostname = new URL(url).hostname.toLowerCase()
+  } catch {
+    return model
+  }
+  if (hostname !== 'api.deepseek.com') return model
+  return DEEPSEEK_RETIRED_MODELS[model.trim().toLowerCase()] ?? model
+}
+
+/**
+ * 把一组服务里已下线的模型名换掉。
+ *
+ * 换名会造出重复项：老版本的候选列表常常同时有 deepseek-chat 和 deepseek-v4-flash，
+ * 换完都是 deepseek-flash、地址密钥也一样，列表里就多出两行一模一样的服务。
+ * 所以**换名造出来的**重复项只留一条（`keepId` 那条优先，通常是启用中的那条），
+ * 被并掉的 id → 留下的 id 交回给调用方，由它改写指向旧 id 的引用。
+ * 换名之前就重复的不动：那是用户自己建的。
+ */
+export function upgradeRetiredAiModels(
+  profiles: AiProfile[],
+  keepId = '',
+): { profiles: AiProfile[]; changed: boolean; mergedInto: Record<string, string> } {
+  const renamed = new Set<string>()
+  const upgraded = profiles.map((p) => {
+    const model = upgradeRetiredAiModel(p.provider, p.apiUrl, p.model)
+    if (model === p.model) return p
+    renamed.add(p.id)
+    return { ...p, model }
+  })
+  if (renamed.size === 0) return { profiles, changed: false, mergedInto: {} }
+
+  const sameService = (a: AiProfile, b: AiProfile) =>
+    a.provider === b.provider
+    && a.apiUrl.trim() === b.apiUrl.trim()
+    && a.apiKey.trim() === b.apiKey.trim()
+    && a.model === b.model
+  const mergedInto: Record<string, string> = {}
+  const out: AiProfile[] = []
+  for (const p of upgraded) {
+    const at = out.findIndex((q) => sameService(q, p) && (renamed.has(p.id) || renamed.has(q.id)))
+    if (at < 0) {
+      out.push(p)
+    } else if (p.id === keepId) {
+      // 留启用中的那条，占先来那条的位置，列表顺序不变
+      mergedInto[out[at].id] = p.id
+      out[at] = p
+    } else {
+      mergedInto[p.id] = out[at].id
+    }
+  }
+  // 先并进 A、A 又被 keepId 顶掉的，要一路追到最后留下的那条
+  for (const id of Object.keys(mergedInto)) {
+    let target = mergedInto[id]
+    while (mergedInto[target]) target = mergedInto[target]
+    mergedInto[id] = target
+  }
+  return { profiles: out, changed: true, mergedInto }
 }

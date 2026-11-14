@@ -60,12 +60,18 @@ fn thinking_overrides(config: &AiProviderConfig) -> Option<serde_json::Value> {
     }
 
     // DeepSeek、小米 MiMo 和智谱 GLM 使用 thinking.type=disabled。
-    // 智谱两条都认：provider == "zhipu" 是内置卡，域名判断留给「用 OpenAI 兼容自己填
-    // 智谱地址」的老配置（这种存量配置不会因为新增内置卡而自动迁移）。
+    // 智谱与 DeepSeek 两条都认：provider 是内置卡，域名判断留给「用 OpenAI 兼容自己填
+    // 官方地址」的配置（这种存量配置不会因为有了内置卡而自动迁移）。
+    //
+    // DeepSeek 的 deepseek-flash **默认开思考**（2026-11 实测：不带参数时 64 个 token
+    // 全花在思维链上，正文为空）。通吃那四个字段它今天也认，但 `reasoning_effort: "none"`
+    // 不在它文档列出的取值里，哪天收紧校验就是 400、每次会话多一趟降级往返。
+    // 它文档写明的开关只有 thinking.type 这一个。
     if config.provider == "deepseek"
         || config.provider == "mimo"
         || config.provider == "zhipu"
         || is_zhipu_api_url(&config.api_url)
+        || is_deepseek_api_url(&config.api_url)
     {
         return Some(serde_json::json!({ "thinking": { "type": "disabled" } }));
     }
@@ -85,6 +91,10 @@ fn host_of(api_url: &str) -> Option<String> {
 
 fn is_zhipu_api_url(api_url: &str) -> bool {
     host_of(api_url).is_some_and(|host| host == "open.bigmodel.cn")
+}
+
+fn is_deepseek_api_url(api_url: &str) -> bool {
+    host_of(api_url).is_some_and(|host| host == "api.deepseek.com")
 }
 
 /// OpenAI 官方 / Azure OpenAI —— 对未知请求字段一律 400 的那一类端点。
@@ -808,6 +818,25 @@ mod tests {
         let relayed = thinking_overrides(&config("zhipu", "https://relay.example/v4", "glm-4.7"))
             .expect("relayed zhipu card should still disable thinking");
         assert_eq!(keys(&relayed), vec!["thinking"]);
+    }
+
+    /// 「OpenAI 兼容」卡填 DeepSeek 官方地址时，发它文档写明的那一个字段，不发通吃集合。
+    /// 中转站（域名不是 api.deepseek.com）不知道对面是谁，仍然走通吃集合。
+    #[test]
+    fn deepseek_host_on_the_compat_card_gets_its_exact_field() {
+        for url in ["https://api.deepseek.com", "https://api.deepseek.com/v1"] {
+            let overrides = thinking_overrides(&config("openai_compat", url, "deepseek-flash"))
+                .expect("deepseek host should disable thinking");
+            assert_eq!(keys(&overrides), vec!["thinking"], "{url}");
+            assert_eq!(overrides["thinking"]["type"], serde_json::json!("disabled"));
+        }
+        let relay = thinking_overrides(&config(
+            "openai_compat",
+            "https://relay.example.com/v1",
+            "deepseek-flash",
+        ))
+        .expect("relay should still get thinking params");
+        assert_eq!(keys(&relay).len(), 4);
     }
 
     /// 智谱 GLM-5.3 的真实错误体（2026-09-20 用户实测）。

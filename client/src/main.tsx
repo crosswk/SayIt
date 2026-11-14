@@ -8,6 +8,7 @@ import { addRuntimeEvent } from './services/debugLog'
 import { initRuntimeConfig } from './services/runtimeConfig'
 import { initProviderFromStore } from './services/transcription'
 import { initLanguage, initLocaleDefaults } from './stores/language'
+import { upgradeRetiredAiModelsOnStartup } from './features/settings/aiProfileStore'
 import { IS_MAC } from './lib/platform'
 import { installMacWebviewBehavior } from './lib/macWebview'
 
@@ -34,6 +35,8 @@ async function bootstrap() {
   // 必须在 render 之前 await：否则首帧会用默认语言画一遍再跳，冷启动能看见闪动。
   const locale = await initLanguage()
   await initLocaleDefaults(locale)
+  // 录音链路只读运行时键，旧模型名要在第一次录音之前换掉（见函数注释）
+  await upgradeRetiredAiModelsOnStartup()
   await initProviderFromStore()
   void startWebviewKeyboardFallback()
   ReactDOM.createRoot(document.getElementById('root')!).render(

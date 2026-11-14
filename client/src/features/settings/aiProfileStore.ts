@@ -14,6 +14,8 @@
 // 无需登记新键）。诊断报告不受影响：collect_settings 用的是固定白名单，不含 cloudAi.*。
 
 import { getSetting, setSetting } from '@/services/store'
+import { addRuntimeEvent, SETTINGS_EVENT_MODEL_RENAMED } from '@/services/debugLog'
+import { CONTEXT_SELECTION_AI_PROFILE_KEY } from '@/services/transcription/selectionAi'
 import {
   AI_PROVIDERS,
   aiSettingKey,
@@ -21,6 +23,8 @@ import {
   parseLegacyLatencies,
   parseProfiles,
   resolveActiveProfile,
+  upgradeRetiredAiModel,
+  upgradeRetiredAiModels,
   type AiProfile,
   type LegacyProviderData,
 } from './aiProviderCatalog'
@@ -101,6 +105,15 @@ export async function loadAiProfiles(): Promise<AiProfileState> {
     needsWrite = profiles.length > 0
   }
 
+  // 老结构刚摊平出来的那批也要过一遍：老版本的默认就是 deepseek-chat / deepseek-v4-flash
+  const upgraded = upgradeRetiredAiModels(profiles, activeId)
+  if (upgraded.changed) {
+    profiles = upgraded.profiles
+    activeId = upgraded.mergedInto[activeId] ?? activeId
+    await remapSelectionProfile(upgraded.mergedInto)
+    needsWrite = true
+  }
+
   const active = resolveActiveProfile(profiles, activeId)
   if (active && active.id !== activeId) {
     activeId = active.id
@@ -116,6 +129,62 @@ export async function loadAiProfiles(): Promise<AiProfileState> {
   }
 
   return { profiles, activeId }
+}
+
+/** 换名时并掉了重复项，「改写选区」那一项指着被并掉的 id 的话，改指留下的那条 */
+async function remapSelectionProfile(mergedInto: Record<string, string>): Promise<void> {
+  if (Object.keys(mergedInto).length === 0) return
+  const current = await getSetting(CONTEXT_SELECTION_AI_PROFILE_KEY, '') as string
+  const next = current ? mergedInto[current] : undefined
+  if (next) await setSetting(CONTEXT_SELECTION_AI_PROFILE_KEY, next)
+}
+
+/**
+ * 启动时把已下线的模型名换成新名字，列表和运行时四个键一起改。
+ *
+ * 必须在启动时做，不能等用户打开「AI 服务」页：录音链路只读运行时键，而大多数人
+ * 配好之后再也不会打开那一页 —— 等旧名真被停掉，他们看到的就是 AI 整理报错。
+ *
+ * 还没打开过新版 AI 服务页的老用户（列表还没摊平出来）只改运行时键，列表留给
+ * loadAiProfiles 摊平时一起换。幂等：没有要换的就一个键都不写。
+ */
+export async function upgradeRetiredAiModelsOnStartup(): Promise<void> {
+  try {
+    const [migrated, rawProfiles, activeId] = await Promise.all([
+      getSetting(AI_PROFILES_MIGRATED_KEY, false) as Promise<boolean>,
+      getSetting(AI_PROFILES_KEY, [] as unknown[]) as Promise<unknown>,
+      getSetting(AI_ACTIVE_PROFILE_KEY, '') as Promise<string>,
+    ])
+    if (migrated) {
+      const upgraded = upgradeRetiredAiModels(parseProfiles(rawProfiles), activeId)
+      if (upgraded.changed) {
+        await remapSelectionProfile(upgraded.mergedInto)
+        // saveAiProfiles 会把启用的那条同步进运行时键
+        await saveAiProfiles({
+          profiles: upgraded.profiles,
+          activeId: upgraded.mergedInto[activeId] ?? activeId,
+        })
+        // 事件名固定，日志与调试页才会留下它（见 debugLog 的 SETTINGS_EVENT_MODEL_RENAMED）
+        addRuntimeEvent('info', 'settings', SETTINGS_EVENT_MODEL_RENAMED, {
+          scope: 'profiles',
+          merged: Object.keys(upgraded.mergedInto).length,
+        })
+      }
+    }
+    const [provider, apiUrl, model] = await Promise.all([
+      getSetting('cloudAi.provider', '') as Promise<string>,
+      getSetting('cloudAi.apiUrl', '') as Promise<string>,
+      getSetting('cloudAi.model', '') as Promise<string>,
+    ])
+    const next = upgradeRetiredAiModel(provider, apiUrl, model)
+    if (next !== model) {
+      await setSetting('cloudAi.model', next)
+      addRuntimeEvent('info', 'settings', SETTINGS_EVENT_MODEL_RENAMED, { scope: 'runtime', from: model, to: next })
+    }
+  } catch (error) {
+    // 换不成也不影响使用（旧名今天仍然可调），别让它挡住启动
+    addRuntimeEvent('warn', 'settings', 'Could not rename retired AI model names', { error: String(error) })
+  }
 }
 
 /** 落盘列表 + 启用项，并把启用的那条同步进运行时四个键。所有写路径都必须走这里 */

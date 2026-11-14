@@ -238,9 +238,9 @@ export default {
       day: 'Today',
       rawLabel: 'Raw transcript',
       items: [
-        { time: '20:31', text: 'Three things: 1. Fix the login bug. 2. Push it to GitHub. 3. Tell me the results.', raw: 'So three things, fix the login bug first, uh, then push it to GitHub, and then tell me the results.', meta: ['Cloud API', 'ASR: Doubao-Seed-ASR-2.0', 'AI: deepseek-v4-flash', 'Audio 5.6s'] },
+        { time: '20:31', text: 'Three things: 1. Fix the login bug. 2. Push it to GitHub. 3. Tell me the results.', raw: 'So three things, fix the login bug first, uh, then push it to GitHub, and then tell me the results.', meta: ['Cloud API', 'ASR: Doubao-Seed-ASR-2.0', 'AI: deepseek-flash', 'Audio 5.6s'] },
         { time: '20:26', text: 'That’s too much detail. Summarize each of the two sections in a few bullet points.', raw: 'Um that’s too much detail, just take these two sections and summarize each one in a few bullet points.', meta: ['Local', 'ASR: Parakeet Unified EN', 'Audio 6.2s'] },
-        { time: '17:07', text: 'Pull the retry logic into a hook, set the timeout to 30 seconds, and add unit tests.', raw: 'Um, so pull the retry logic into a hook, set the timeout to twenty, no wait, thirty seconds, and add unit tests.', meta: ['Server', 'ASR: Qwen3-ASR-1.7B', 'AI: deepseek-v4-flash', 'Audio 7.1s'] },
+        { time: '17:07', text: 'Pull the retry logic into a hook, set the timeout to 30 seconds, and add unit tests.', raw: 'Um, so pull the retry logic into a hook, set the timeout to twenty, no wait, thirty seconds, and add unit tests.', meta: ['Server', 'ASR: Qwen3-ASR-1.7B', 'AI: deepseek-flash', 'Audio 7.1s'] },
         { time: '16:52', text: 'Let’s meet at 11 tomorrow and bring the new design.', raw: 'Let’s meet at ten, no, eleven tomorrow, and bring the, uh, the new design.', meta: ['Cloud API', 'ASR: whisper-large-v3', 'Audio 4.8s'] },
       ],
     },
@@ -304,7 +304,7 @@ export default {
       testAll: 'Test all',
       add: 'New',
       items: [
-        ['deepseek-v4-flash', 'DeepSeek', 385],
+        ['deepseek-flash', 'DeepSeek', 385],
         ['gpt-4.1-mini', 'OpenAI', 520],
         ['qwen3.6-flash', 'Qwen', 423],
         ['llama-3.3-70b', 'Groq', 310],
@@ -383,7 +383,7 @@ export default {
           ['ASR', 'OpenAI (gpt-4o-transcribe)'],
           ['Local engine', 'Vulkan · Process memory 612 MB · transcribe.cpp 0.4.2'],
           ['Compute device', 'NVIDIA GeForce RTX 4060 (discrete GPU, 8 GB)'],
-          ['AI cleanup', 'DeepSeek (deepseek-v4-flash)'],
+          ['AI cleanup', 'DeepSeek (deepseek-flash)'],
         ],
         faqTitle: 'Common problems',
         faq: {
@@ -405,7 +405,7 @@ export default {
           ['info', '20:31:02 [hotkey] hands-free start key=RightAlt'],
           ['info', '20:31:02 [recorder] Recording started mic="Microphone Array"'],
           ['info', '20:31:08 [asr] openai ok chars=96 asr_ms=840'],
-          ['info', '20:31:09 [llm] deepseek-v4-flash ok ms=566'],
+          ['info', '20:31:09 [llm] deepseek-flash ok ms=566'],
           ['info', '20:31:09 [inject] gate=uia sent=4 target=WindowsTerminal.exe'],
           ['warn', '20:42:15 [mic] low input level, rms=0.006'],
           ['info', '20:42:19 [asr] openai ok chars=41 asr_ms=702'],

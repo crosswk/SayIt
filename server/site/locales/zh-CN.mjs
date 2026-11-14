@@ -236,9 +236,9 @@ export default {
       day: '今天',
       rawLabel: 'ASR 原文',
       items: [
-        { time: '20:31', text: '1. 先修复漏洞的 bug。2. 推送到 GitHub 看看。3. 最后告诉我结果。', raw: '有三个事情，先修复漏洞的 bug 吧。呃，然后推送到 GitHub 看看，最后再告诉我结果。', meta: ['云 API', 'ASR: Doubao-Seed-ASR-2.0', 'AI: deepseek-v4-flash', '语音 5.6s'] },
+        { time: '20:31', text: '1. 先修复漏洞的 bug。2. 推送到 GitHub 看看。3. 最后告诉我结果。', raw: '有三个事情，先修复漏洞的 bug 吧。呃，然后推送到 GitHub 看看，最后再告诉我结果。', meta: ['云 API', 'ASR: Doubao-Seed-ASR-2.0', 'AI: deepseek-flash', '语音 5.6s'] },
         { time: '20:26', text: '解释的内容太多了，你直接这两段，每一段用一段话分一些要点解释一下就行了。', raw: '嗯解释的内容太多了，你直接这两段，每一段用一段话分一些要点解释一下就行了。', meta: ['本地', 'ASR: SenseVoice Small', '语音 6.2s'] },
-        { time: '17:07', text: '把 retry 逻辑抽成一个 hook，超时改成 30 秒，顺便补上单元测试。', raw: '嗯，把那个瑞翠逻辑抽成一个哈克，超时改成二十秒，不对，三十秒，然后顺便补上单元测试。', meta: ['服务器', 'ASR: Qwen3-ASR-1.7B', 'AI: deepseek-v4-flash', '语音 7.1s'] },
+        { time: '17:07', text: '把 retry 逻辑抽成一个 hook，超时改成 30 秒，顺便补上单元测试。', raw: '嗯，把那个瑞翠逻辑抽成一个哈克，超时改成二十秒，不对，三十秒，然后顺便补上单元测试。', meta: ['服务器', 'ASR: Qwen3-ASR-1.7B', 'AI: deepseek-flash', '语音 7.1s'] },
         { time: '16:52', text: '明天上午十一点开会，记得带上新版本的设计稿。', raw: '明天上午十点开会，不对，十一点，记得带上那个新版本的设计稿。', meta: ['云 API', 'ASR: qwen3-asr-flash', '语音 4.8s'] },
         { time: '16:50', text: 'Here’s the plan: 1. Fix the login bug. 2. Push it to GitHub. 3. Tell me the results.', raw: '计划是先修登录的 bug，然后推到 GitHub，最后告诉我结果。', meta: ['云 API', 'AI: 中翻英忠实校对', '语音 5.0s'] },
       ],
@@ -303,7 +303,7 @@ export default {
       testAll: '测试全部',
       add: '新建',
       items: [
-        ['deepseek-v4-flash', 'DeepSeek', 385],
+        ['deepseek-flash', 'DeepSeek', 385],
         ['qwen3.6-flash', '通义千问', 423],
         ['doubao-seed-2-0-lite', '豆包（火山方舟）', 3000],
         ['doubao-seed-2-0-mini', '豆包（火山方舟）', 1000],
@@ -382,7 +382,7 @@ export default {
           ['ASR', '豆包 ASR（Doubao-Seed-ASR-2.0）'],
           ['本地引擎', 'Vulkan · 进程内存 612 MB · transcribe.cpp 0.4.2'],
           ['计算设备', 'NVIDIA GeForce RTX 4060（独立显卡，8 GB）'],
-          ['AI 整理', 'DeepSeek（deepseek-v4-flash）'],
+          ['AI 整理', 'DeepSeek（deepseek-flash）'],
         ],
         faqTitle: '常见问题',
         faq: {
@@ -404,7 +404,7 @@ export default {
           ['info', '20:31:02 [hotkey] hands-free start key=RightAlt'],
           ['info', '20:31:02 [recorder] Recording started mic="麦克风阵列"'],
           ['info', '20:31:08 [asr] doubao ok chars=41 asr_ms=612'],
-          ['info', '20:31:09 [llm] deepseek-v4-flash ok ms=566'],
+          ['info', '20:31:09 [llm] deepseek-flash ok ms=566'],
           ['info', '20:31:09 [inject] gate=uia sent=4 target=WindowsTerminal.exe'],
           ['warn', '20:42:15 [mic] low input level, rms=0.006'],
           ['info', '20:42:19 [asr] doubao ok chars=18 asr_ms=540'],

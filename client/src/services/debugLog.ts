@@ -66,6 +66,15 @@ const AI_KEY_EVENTS = new Set<string>([AI_EVENT_REQUEST, AI_EVENT_OUTCOME])
 
 let totalAudioBytes = 0
 
+/**
+ * 启动时自动改了用户配置（目前是把已下线的模型名换成新名字）。同 AI 那两条，按事件名放行。
+ *
+ * 不放行的话，这次改动在日志和调试页里都查不到：用户问「模型名怎么自己变了」时无从说起。
+ * 量：只在真的改了东西的那次启动记一两条。
+ */
+export const SETTINGS_EVENT_MODEL_RENAMED = 'settings.retired_model_renamed'
+const SETTINGS_KEY_EVENTS = new Set<string>([SETTINGS_EVENT_MODEL_RENAMED])
+
 function shouldMirrorPayload(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') return false
   const value = payload as Record<string, unknown>
@@ -82,6 +91,7 @@ function shouldMirrorPayload(payload: unknown): boolean {
       || source === 'websocket' && WEBSOCKET_KEY_EVENT.test(message)
       || source === 'audio' && AUDIO_KEY_EVENT.test(message)
       || source === AI_LOG_SOURCE && AI_KEY_EVENTS.has(message)
+      || source === 'settings' && SETTINGS_KEY_EVENTS.has(message)
       || source === 'backend'
       // update 全放行：整条更新链路是用户**看不见**的（后台检查、后台下载、退出时安装），
       // 出问题时日志是唯一线索。量也极小：启动一次 + 每 6 小时一次。
@@ -103,6 +113,7 @@ function shouldKeepRuntimeEvent(event: RuntimeEvent): boolean {
   // 必须和 shouldMirrorPayload 同步放行：两套判据分开写过一次，结果出现"内存里有、
   // 日志里没有"，而排查用的是日志。
   if (event.source === AI_LOG_SOURCE) return AI_KEY_EVENTS.has(event.message)
+  if (event.source === 'settings') return SETTINGS_KEY_EVENTS.has(event.message)
   // 见 shouldMirrorPayload 里的同名分支：更新链路用户看不见，诊断只能靠日志
   if (event.source === 'update') return true
   if (event.source === 'websocket') {

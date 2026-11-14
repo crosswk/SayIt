@@ -18,6 +18,8 @@ import {
   profileTitle,
   preferredAiProviderValue,
   resolveActiveProfile,
+  upgradeRetiredAiModel,
+  upgradeRetiredAiModels,
   type AiProfile,
   type LegacyProviderData,
 } from '../aiProviderCatalog'
@@ -374,5 +376,91 @@ describe('migrateLegacyProfiles', () => {
     const first = migrateLegacyProfiles(legacy, 'deepseek', '')
     const second = migrateLegacyProfiles(legacy, 'deepseek', '')
     expect(first.profiles.map((p) => p.id)).toEqual(second.profiles.map((p) => p.id))
+  })
+
+  /**
+   * 老结构摊平出来的就是这张表里的旧名（deepseek-v4-flash + deepseek-chat），
+   * 换名之后两条变成同一份服务，只能留一条，而且要留启用中的那条。
+   */
+  it('摊平之后再换名：两条并成一条 deepseek-flash，留下的是启用项', () => {
+    const migrated = migrateLegacyProfiles(legacy, 'deepseek', 'deepseek-chat')
+    const { profiles, mergedInto } = upgradeRetiredAiModels(migrated.profiles, migrated.activeId)
+    expect(profiles.map((p) => p.model)).toEqual(['deepseek-flash'])
+    expect(profiles[0].id).toBe(migrated.activeId)
+    expect(mergedInto).toEqual({ 'legacy-deepseek-deepseek-v4-flash': migrated.activeId })
+  })
+})
+
+describe('已下线模型名的迁移', () => {
+  it('DeepSeek 官方地址上的旧名换成 deepseek-flash', () => {
+    for (const old of [
+      'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp', 'deepseek-chat', 'deepseek-reasoner', ' DeepSeek-Chat ',
+    ]) {
+      expect(upgradeRetiredAiModel('deepseek', 'https://api.deepseek.com', old), old).toBe('deepseek-flash')
+    }
+    // 地址写到 /v1 也是官方地址；DeepSeek 卡地址空着时按默认地址算
+    expect(upgradeRetiredAiModel('deepseek', 'https://api.deepseek.com/v1', 'deepseek-chat')).toBe('deepseek-flash')
+    expect(upgradeRetiredAiModel('deepseek', '', 'deepseek-chat')).toBe('deepseek-flash')
+    // 「OpenAI 兼容」卡填的是官方地址，同样换
+    expect(upgradeRetiredAiModel('openai_compat', 'https://api.deepseek.com', 'deepseek-v4-flash')).toBe('deepseek-flash')
+  })
+
+  /** 中转站上的模型名是对方定的，换了可能就打不通了。 */
+  it('中转站、别家供应商、还在用的名字一律不动', () => {
+    expect(upgradeRetiredAiModel('deepseek', 'https://relay.example.com/v1', 'deepseek-chat')).toBe('deepseek-chat')
+    expect(upgradeRetiredAiModel('openai_compat', 'https://api.siliconflow.cn/v1', 'deepseek-v4-flash'))
+      .toBe('deepseek-v4-flash')
+    expect(upgradeRetiredAiModel('openrouter', 'https://openrouter.ai/api/v1', 'deepseek-chat')).toBe('deepseek-chat')
+    // 「OpenAI 兼容」卡没填地址时不知道对面是谁
+    expect(upgradeRetiredAiModel('openai_compat', '', 'deepseek-chat')).toBe('deepseek-chat')
+    expect(upgradeRetiredAiModel('deepseek', 'https://api.deepseek.com', 'deepseek-v4-pro')).toBe('deepseek-v4-pro')
+    expect(upgradeRetiredAiModel('deepseek', 'https://api.deepseek.com', 'deepseek-flash')).toBe('deepseek-flash')
+    expect(upgradeRetiredAiModel('deepseek', 'not a url', 'deepseek-chat')).toBe('deepseek-chat')
+  })
+
+  it('没有要换的：changed 为假，原数组原样返回', () => {
+    const list = [profile({ model: 'deepseek-flash' }), profile({ id: 'p2', provider: 'qwen', model: 'qwen-plus' })]
+    const result = upgradeRetiredAiModels(list)
+    expect(result.changed).toBe(false)
+    expect(result.profiles).toBe(list)
+    expect(result.mergedInto).toEqual({})
+  })
+
+  it('只换名、不重复时，条数、顺序、检测结果都不变', () => {
+    const check = { ok: true, at: 1000, latencyMs: 900 }
+    const list = [
+      profile({ id: 'a', model: 'deepseek-v4-flash', check }),
+      profile({ id: 'b', provider: 'qwen', apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode', model: 'qwen-plus' }),
+    ]
+    const { profiles, changed, mergedInto } = upgradeRetiredAiModels(list)
+    expect(changed).toBe(true)
+    expect(profiles.map((p) => [p.id, p.model])).toEqual([['a', 'deepseek-flash'], ['b', 'qwen-plus']])
+    expect(profiles[0].check).toEqual(check)
+    expect(mergedInto).toEqual({})
+  })
+
+  it('密钥不同的两条不算重复，各自保留', () => {
+    const list = [
+      profile({ id: 'a', model: 'deepseek-chat', apiKey: 'sk-one' }),
+      profile({ id: 'b', model: 'deepseek-v4-flash', apiKey: 'sk-two' }),
+    ]
+    expect(upgradeRetiredAiModels(list).profiles.map((p) => p.id)).toEqual(['a', 'b'])
+  })
+
+  it('换名前就重复的两条是用户自己建的，不动', () => {
+    const list = [profile({ id: 'a', model: 'deepseek-flash' }), profile({ id: 'b', model: 'deepseek-flash' })]
+    expect(upgradeRetiredAiModels(list).changed).toBe(false)
+  })
+
+  it('并掉的 id 一路追到最后留下的那条', () => {
+    // a 先留下、b 并进 a；c 是启用项，把 a 顶掉 —— b 必须指向 c，不能指向已经不在列表里的 a
+    const list = [
+      profile({ id: 'a', model: 'deepseek-chat' }),
+      profile({ id: 'b', model: 'deepseek-v4-flash' }),
+      profile({ id: 'c', model: 'deepseek-reasoner' }),
+    ]
+    const { profiles, mergedInto } = upgradeRetiredAiModels(list, 'c')
+    expect(profiles.map((p) => p.id)).toEqual(['c'])
+    expect(mergedInto).toEqual({ a: 'c', b: 'c' })
   })
 })
