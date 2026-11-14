@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildAsrExtra,
+  isIntegratedAsrProvider,
   isQwenOmniProvider,
   isStreamingDisplayCapable,
   isStreamingDisplayReady,
@@ -21,6 +22,37 @@ describe('isQwenOmniProvider', () => {
     expect(isQwenOmniProvider('doubao_v2')).toBe(false)
     expect(isQwenOmniProvider('qwen')).toBe(false)
     expect(isQwenOmniProvider('')).toBe(false)
+  })
+})
+
+describe('isIntegratedAsrProvider', () => {
+  /**
+   * qwen3.8-omni-flash 的回归测试。它走 HTTP，运行时 key 是 qwen_chat_audio。
+   * 以前录音链路拿 isQwenOmniProvider 判「按不按 Omni 处理」，于是它被漏掉：
+   * System Prompt 发不出去，AI 策略也不走 integrated_asr。
+   */
+  it('HTTP 的 Omni 也算，哪怕它不以 qwen_omni 开头', () => {
+    expect(isIntegratedAsrProvider('qwen_chat_audio')).toBe(true)
+    expect(isQwenOmniProvider('qwen_chat_audio')).toBe(false)
+  })
+
+  it('realtime 的 Omni 与旧运行时键都算', () => {
+    for (const provider of [
+      'qwen_omni', 'qwen_omni_plus', 'qwen_omni_35_plus', 'qwen_omni_35_flash', 'qwen_omni_flash', 'qwen_omni_turbo',
+    ]) {
+      expect(isIntegratedAsrProvider(provider)).toBe(true)
+    }
+  })
+
+  // openai_chat_audio 是「OpenAI 兼容」卡的对话协议：模型名由用户填，对面是谁不知道，
+  // 不能因为协议相同就当成 Omni、把客户端 AI 跳过去
+  it('普通识别不算', () => {
+    for (const provider of [
+      'qwen', 'qwen_audio_stream', 'qwen_realtime', 'doubao_v2', 'groq_whisper',
+      'openai_chat_audio', 'openai_chat_audio_standard', 'openai_compat', '',
+    ]) {
+      expect(isIntegratedAsrProvider(provider)).toBe(false)
+    }
   })
 })
 

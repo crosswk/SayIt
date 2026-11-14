@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Feedback } from '@/components/ui/feedback'
 import { getSetting } from '@/services/store'
 import { getEngineDraftDirty, subscribeEngineDraft } from '@/stores/engineDraft'
-import { buildAsrExtra, isQwenOmniProvider, resolveAsrDisplayModel } from '@/lib/asrModels'
+import { buildAsrExtra, isIntegratedAsrProvider, isQwenOmniProvider, resolveAsrDisplayModel } from '@/lib/asrModels'
 import { describeProviderError, describeServerError } from '@/lib/errorMessages'
 import type { WorkMode } from '@/services/transcription'
 import { useT } from '@/i18n/useT'
@@ -99,8 +99,8 @@ export default function AsrTestSection({ workMode }: { workMode: WorkMode }) {
 
         // 模型解析一律走 @/lib/asrModels。这里原来自己抄了一份映射表，还留着几个
         // 已经不在 ASR_PROVIDERS 里的旧 key——测试可能用与实际配置不同的模型。
-        const isOmni = isQwenOmniProvider(asrProvider)
-        const savedPrompt = isOmni
+        // 发不发 System Prompt 与录音同一个判据；isQwenOmniProvider 只管换算成 qwen_omni
+        const savedPrompt = isIntegratedAsrProvider(asrProvider)
           ? await getSetting('cloudAsr.omniSystemPrompt', '') as string
           : ''
         // baseUrl 只有「地址自己填」那两张卡是非空的，其余一律空串（见 asrEndpointUrl）
@@ -119,7 +119,7 @@ export default function AsrTestSection({ workMode }: { workMode: WorkMode }) {
             audio_b64: pcmB64,
             sample_rate: 16000,
             asr_config: {
-              provider: isOmni ? 'qwen_omni' : asrProvider,
+              provider: isQwenOmniProvider(asrProvider) ? 'qwen_omni' : asrProvider,
               api_key: asrApiKey,
               app_id: asrAppId,
               ...(extra && { extra }),

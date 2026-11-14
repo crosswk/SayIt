@@ -16,7 +16,12 @@ const QWEN_OMNI_MODEL_MAP: Record<string, string> = {
   qwen_omni_turbo: 'qwen3.5-omni-flash-realtime',
 }
 
-/** 判断是否为 Qwen Omni 系列模型 */
+/**
+ * 是不是走 realtime WebSocket 的那几个 Qwen Omni（含 `qwen_omni_35_plus` 这类旧运行时键）。
+ *
+ * 只用来把运行时键换算成 Rust 侧的 `qwen_omni`、从老表反查模型名。
+ * 「这次要不要按 Omni 处理」不归它管，见 isIntegratedAsrProvider。
+ */
 export function isQwenOmniProvider(provider: string): boolean {
   return provider.startsWith('qwen_omni')
 }
@@ -24,6 +29,28 @@ export function isQwenOmniProvider(provider: string): boolean {
 /** 根据供应商 key 解析 Qwen Omni 模型 ID，非 Omni 返回 undefined */
 export function resolveQwenOmniModel(provider: string): string | undefined {
   return QWEN_OMNI_MODEL_MAP[provider]
+}
+
+/**
+ * 识别与整理一步完成（Omni 一类）的运行时 key。
+ *
+ * 目录里的 `omni` 只决定界面上有没有 System Prompt 框，运行时只认这张表。
+ * 两边一致由 asrProviderCatalog.test.ts 钉住，和 STREAMING_CAPABLE 同一个套路。
+ */
+const INTEGRATED_ASR_PROVIDERS = new Set(['qwen_omni', 'qwen_chat_audio'])
+
+/**
+ * 这次识别要不要按 Omni 处理：System Prompt 发下去，AI 策略走 integrated_asr
+ * （不再另调客户端 AI）。录音、历史重跑、识别测试三处都用它。
+ *
+ * ⚠️ 别拿 isQwenOmniProvider 代替。HTTP 那个 qwen3.8-omni-flash 的运行时 key 是
+ * `qwen_chat_audio`，不以 qwen_omni 开头，以前就是这么漏的：真录音时 System Prompt
+ * 发不出去，模型只做转写，之后又被客户端 AI 整理一遍。设置页的测试按钮看的是目录标记，
+ * 所以测出来一切正常。
+ */
+export function isIntegratedAsrProvider(provider: string): boolean {
+  // 旧运行时键（qwen_omni_35_plus 这类）不在表里，由前缀兜住
+  return INTEGRATED_ASR_PROVIDERS.has(provider) || isQwenOmniProvider(provider)
 }
 
 /** ASR 供应商 key → 显示用的**默认**模型 ID（用户可能选了同平台的另一个） */

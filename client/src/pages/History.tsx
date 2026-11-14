@@ -1,6 +1,6 @@
 import * as bridge from '@/services/bridge'
 import { cn } from '@/lib/utils'
-import { buildAsrExtra, resolveAsrDisplayModel, isQwenOmniProvider } from '@/lib/asrModels'
+import { buildAsrExtra, resolveAsrDisplayModel, isIntegratedAsrProvider, isQwenOmniProvider } from '@/lib/asrModels'
 import { getWorkMode } from '@/services/transcription'
 import { polishWithClientAi } from '@/services/transcription/clientAiPolish'
 import {
@@ -256,13 +256,16 @@ async function reprocessViaCloudApi(
   const durationSec = (chunk.byteLength / 2) / 16000
 
   const asrProvider = await getSetting('cloudAsr.provider', 'doubao') as string
+  // 与 CloudAPIProvider 同一对判据：isQwenOmni 只管换算成 qwen_omni，
+  // 按不按 Omni 处理看 integratedAsr（HTTP 的 qwen3.8-omni-flash 不以 qwen_omni 开头）
   const isQwenOmni = isQwenOmniProvider(asrProvider)
+  const integratedAsr = isIntegratedAsrProvider(asrProvider)
   const asrApiKey = await getSetting('cloudAsr.apiKey', '') as string
   const asrAppId = await getSetting('cloudAsr.appId', '') as string
   const asrModel = await getSetting('cloudAsr.model', '') as string
 
   let omniInstructions: string | undefined
-  if (isQwenOmni) {
+  if (integratedAsr) {
     const savedPrompt = await getSetting('cloudAsr.omniSystemPrompt', '') as string
     omniInstructions = savedPrompt || undefined
   }
@@ -296,7 +299,7 @@ async function reprocessViaCloudApi(
   //   2. 配置判据写成 `url && key && model`，漏了 ollama 免密豁免 —— ollama 用户
   //      重跑时被静默判成"配置不完整"；
   //   3. catch 空吞，既无日志也无执行状态，失败与未调用在记录里分不开。
-  const policy = policyFromSnapshot(ai.snapshot, 'cloud_api', durationSec, isQwenOmni)
+  const policy = policyFromSnapshot(ai.snapshot, 'cloud_api', durationSec, integratedAsr)
   const polish = await polishWithClientAi({
     asrText,
     startOptions: {

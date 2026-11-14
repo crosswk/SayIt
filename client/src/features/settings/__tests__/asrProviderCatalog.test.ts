@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isStreamingDisplayReady } from '@/lib/asrModels'
+import { isIntegratedAsrProvider, isStreamingDisplayReady } from '@/lib/asrModels'
 import {
   ASR_PLATFORMS,
   ASR_PROVIDERS,
@@ -176,6 +176,26 @@ describe('ASR_PROVIDERS 结构性不变量', () => {
     }
     // 至少有一个标了 streaming，否则上面那条等于没跑
     expect(streamingCount).toBeGreaterThan(0)
+  })
+
+  /**
+   * 模型上标了 omni 的，运行时必须真的按 Omni 处理（isIntegratedAsrProvider 认它）；反过来也一样。
+   *
+   * 和上面 streaming 那条同理：目录里的 omni 只决定界面上有没有 System Prompt 框，
+   * 运行时只认 asrModels.ts 那张表。qwen3.8-omni-flash 就漏过（0.2.1~0.2.5）：卡片上能填
+   * System Prompt、测试按钮也正常，真录音时却发不出去，还被客户端 AI 再整理一遍。
+   *
+   * 判据用模型的 provider，所以同一个运行时 key 下的模型 omni 标记必须一致。
+   * 哪天混进一个非 omni 的模型，这条会红，到时候要改成按模型判断。
+   */
+  it('模型的 omni 标记与运行时判据一致', () => {
+    const models = ASR_PROVIDERS.flatMap((p) => asrModelsOf(p))
+    const mismatched = models
+      .filter((m) => isIntegratedAsrProvider(m.provider) !== Boolean(m.omni))
+      .map((m) => m.id)
+    expect(mismatched).toEqual([])
+    // 至少有一个标了 omni，否则上面那条等于没跑
+    expect(models.some((m) => m.omni)).toBe(true)
   })
 
   /**
