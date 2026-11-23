@@ -15,8 +15,8 @@ type Handler = (payload?: unknown) => void
 const h = vi.hoisted(() => {
   const handlers: Record<string, Handler[]> = {}
   const on = (name: string) => (cb: Handler) => {
-    ;(handlers[name] ||= []).push(cb)
-    return () => {}
+    ; (handlers[name] ||= []).push(cb)
+    return () => { }
   }
   const state = {
     handlers,
@@ -48,7 +48,7 @@ vi.mock('../../bridge', () => {
     setCardHotkeys: fn(),
     copyText: fn(),
     emit: fn(),
-    listen: vi.fn(() => Promise.resolve(() => {})),
+    listen: vi.fn(() => Promise.resolve(() => { })),
     muteSystemOutput: fn(),
     restoreSystemOutput: fn(),
     deleteAudioFile: fn(),
@@ -64,6 +64,9 @@ vi.mock('../../bridge', () => {
     onPTTUp: h.on('ptt-up'),
     onPTTToggle: h.on('ptt-toggle'),
     onToggleHandsFree: h.on('hands-free'),
+    onToggleTranslate: h.on('translate'),
+    onToggleAsk: h.on('ask'),
+    onOverlayOpenLink: h.on('open-link'),
     onPTTTimeoutWarning: h.on('timeout-warning'),
     onEscapeAction: h.on('escape'),
     onCardDismissed: h.on('card-dismissed'),
@@ -127,9 +130,16 @@ vi.mock('../../store', async (importOriginal) => ({
   }),
   getPromptPresets: vi.fn(async () => []),
   getActivePresetId: vi.fn(async () => 'intent'),
-  setActivePresetId: vi.fn(async () => {}),
+  setActivePresetId: vi.fn(async () => { }),
 }))
-vi.mock('../../debugLog', () => ({ addRuntimeEvent: vi.fn() }))
+vi.mock('../../debugLog', () => ({
+  addRuntimeEvent: vi.fn(),
+  AI_LOG_SOURCE: 'ai',
+  AI_EVENT_REQUEST: 'ai.request',
+  AI_EVENT_OUTCOME: 'ai.outcome',
+  AI_EVENT_ASK_REQUEST: 'ai.ask.request',
+  AI_EVENT_ASK_OUTCOME: 'ai.ask.outcome',
+}))
 vi.mock('../../audioFileService', () => ({
   saveRecordingAudio: vi.fn(async (id: string) => `C:/audio/${id}.wav`),
 }))
@@ -150,6 +160,7 @@ vi.mock('../../../stores/activePreset', () => ({ setActivePresetKnown: vi.fn() }
 vi.mock('@/i18n', () => ({ t: (key: string) => key, getLocale: () => 'zh-CN' }))
 
 import * as bridge from '../../bridge'
+import { invoke } from '@tauri-apps/api/core'
 import { addRuntimeEvent } from '../../debugLog'
 import { RecorderOrchestrator } from '../RecorderOrchestrator'
 
@@ -600,7 +611,7 @@ describe('RecorderOrchestrator 插入卡住与各模式超时', () => {
   afterEach(() => { vi.unstubAllGlobals() })
 
   it('插入一直不返回：15 秒后把文字交还给用户（兜底卡片），回到空闲，能开始下一次', async () => {
-    vi.mocked(bridge.pasteText).mockImplementationOnce(() => new Promise(() => {}))
+    vi.mocked(bridge.pasteText).mockImplementationOnce(() => new Promise(() => { }))
     await startedOrchestrator()
     fake()
     await recordAndRelease(2)
@@ -664,5 +675,130 @@ describe('RecorderOrchestrator 开始录音时出错', () => {
     emit('ptt-down')
     await flush(40)
     expect(orch.getState()).toBe('recording')
+  })
+})
+
+describe('RecorderOrchestrator 语音翻译 / 随便问', () => {
+  /** 按一次开始、再按一次结束。切换键开录后有 500ms 的防抖和 PTT 抑制，两次之间真等过去。 */
+  async function toggleTwice(event: 'translate' | 'ask', seconds = 2) {
+    emit(event)
+    await flush()
+    expect(orch.getState()).toBe('recording')
+    feedAudio(seconds)
+    await new Promise((resolve) => setTimeout(resolve, 550))
+    emit(event)
+    await flush()
+    expect(orch.getState()).toBe('processing')
+  }
+
+  const startOptions = () => provider.start.mock.calls[0][0] as Record<string, unknown>
+
+  it('没设快捷键（= 关闭）时，迟到的快捷键事件不开始录音', async () => {
+    await startedOrchestrator()
+    emit('translate')
+    emit('ask')
+    await flush()
+    expect(orch.getState()).toBe('idle')
+    expect(provider.start).not.toHaveBeenCalled()
+  })
+
+  it('翻译：AI 整理关着也要调本机 AI，用翻译提示词，不带编辑器正文，插入译文', async () => {
+    h.state.settings = {
+      aiEnabled: false,
+      contextAwareWritingEnabled: true,
+      shortcutTranslate: 'Control+Alt+T',
+      'translate.targetLanguage': 'ja',
+    }
+    await startedOrchestrator()
+    await toggleTwice('translate')
+
+    const opts = startOptions()
+    expect(opts.disableAi).toBe(false)
+    expect(opts.textContext).toBeUndefined()
+    expect(opts.aiConfig).toMatchObject({ aiEnabled: true, aiMinDurationSec: 0, selectionAiOverride: true })
+    expect(String(opts.systemPrompt)).toContain('Japanese (日本語)')
+    // 录音中悬浮窗挂着模式提示
+    const listening = vi.mocked(bridge.updateOverlay).mock.calls.map((c) => c[0] as Record<string, unknown>)
+      .filter((p) => p.state === 'listening')
+    expect(listening.length).toBeGreaterThan(0)
+    expect(listening.every((p) => p.modeLabel === 'overlay.modeTranslate')).toBe(true)
+    expect(opts.aiTimeoutMs).toBeGreaterThan(8000)
+    expect(provider.stop.mock.calls[0][0]).toMatchObject({ aiPolicy: { route: 'custom', allowCall: true } })
+
+    provider.callbacks!.onFinal(finalResult('你好', { llmText: 'こんにちは', aiStatus: 'applied', aiSource: 'custom' }))
+    await flush(60)
+    expect(vi.mocked(bridge.pasteText).mock.calls[0][0]).toBe('こんにちは')
+  })
+
+  it('翻译没完成：不插原文，弹结果卡说明这是没翻译的原文', async () => {
+    h.state.settings = { shortcutTranslate: 'Control+Alt+T' }
+    await startedOrchestrator()
+    await toggleTwice('translate')
+
+    provider.callbacks!.onFinal(finalResult('你好', { aiStatus: 'failed', aiReason: 'call_timeout' }))
+    await flush(60)
+    expect(bridge.pasteText).not.toHaveBeenCalled()
+    const card = vi.mocked(bridge.presentOverlay).mock.calls.map((c) => c[0] as Record<string, unknown>)
+      .find((p) => p.state === 'fallback')
+    expect(card).toMatchObject({ fallbackText: '你好', fallbackReason: 'translate_failed' })
+    expect(store.history).toHaveLength(1)
+  })
+
+  it('随便问：只识别不整理，把问题和选区交给 AI，答案显示在卡片上，不插字', async () => {
+    h.state.settings = {
+      aiEnabled: true,
+      shortcutAsk: 'Control+Alt+Q',
+      'cloudAi.provider': 'deepseek',
+      'cloudAi.apiUrl': 'https://api.deepseek.com',
+      'cloudAi.apiKey': 'sk-test',
+      'cloudAi.model': 'deepseek-flash',
+    }
+    vi.mocked(bridge.getRecordingContext).mockResolvedValueOnce({
+      appContext: {
+        processName: 'notepad.exe',
+        windowTitle: 'Untitled',
+        reason: 'test',
+        textContext: { source: 'uia', textBefore: 'before', selectedText: 'the selection', textAfter: 'after', selectionTruncated: false },
+      },
+      probe: h.state.probe,
+    } as never)
+    vi.mocked(invoke).mockImplementation(async (command: string) => (command === 'ai_ask'
+      ? { text: 'The answer', sources: [{ title: 'S', url: 'https://s.example' }], search: 'builtin', search_issue: '', elapsed_ms: 5 }
+      : undefined))
+    await startedOrchestrator()
+    await toggleTwice('ask')
+
+    expect(vi.mocked(bridge.getRecordingContext)).toHaveBeenLastCalledWith(true)
+    const opts = startOptions()
+    expect(opts.disableAi).toBe(true)
+    expect(opts.textContext).toBeUndefined()
+
+    provider.callbacks!.onFinal(finalResult('这是什么意思'))
+    await flush(80)
+
+    const askCall = vi.mocked(invoke).mock.calls.find((c) => c[0] === 'ai_ask')
+    expect(askCall?.[1]).toMatchObject({ request: { question: '这是什么意思', selected_text: 'the selection' } })
+    expect(bridge.pasteText).not.toHaveBeenCalled()
+    const card = vi.mocked(bridge.presentOverlay).mock.calls.map((c) => c[0] as Record<string, unknown>)
+      .find((p) => p.state === 'answer')
+    expect(card).toMatchObject({ answerQuestion: '这是什么意思', answerText: 'The answer', answerNote: '' })
+    expect(store.history).toHaveLength(1)
+    expect(store.history[0]).toMatchObject({ asrText: '这是什么意思' })
+    expect(orch.getState()).toBe('idle')
+    const thinking = vi.mocked(bridge.updateOverlay).mock.calls.map((c) => c[0] as Record<string, unknown>)
+      .find((p) => p.state === 'thinking')
+    expect(thinking).toMatchObject({ modeLabel: 'overlay.modeAsk', thinkingNote: 'ask' })
+
+    // 下一次普通口述不能带着上一次的模式提示
+    vi.mocked(bridge.presentOverlay).mockClear()
+    vi.mocked(bridge.updateOverlay).mockClear()
+    emit('ptt-down')
+    await flush()
+    const next = [...vi.mocked(bridge.presentOverlay).mock.calls, ...vi.mocked(bridge.updateOverlay).mock.calls]
+      .map((c) => c[0] as Record<string, unknown>)
+      .filter((p) => p.state === 'waiting' || p.state === 'listening')
+    expect(next.length).toBeGreaterThan(0)
+    expect(next.every((p) => p.modeLabel === '')).toBe(true)
+    vi.mocked(invoke).mockReset().mockImplementation(async () => undefined)
   })
 })

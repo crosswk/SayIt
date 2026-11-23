@@ -271,6 +271,8 @@ pub(crate) enum TapComboAction {
     HandsFree,
     AiToggle,
     Preset(String),
+    /// 语音翻译 / 随便问，值是发给前端的事件名（toggle-translate / toggle-ask）
+    VoiceAction(&'static str),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -394,6 +396,7 @@ fn handle_tap_combo(vk: u32, is_kdown: bool, is_kup: bool, flags: CGEventFlags) 
         TapComboAction::HandsFree => HookAction::HfToggle { vk },
         TapComboAction::AiToggle => HookAction::AiToggle { vk },
         TapComboAction::Preset(preset_id) => HookAction::PresetSwitch { preset_id },
+        TapComboAction::VoiceAction(event) => HookAction::VoiceAction { event, vk },
     });
     true
 }

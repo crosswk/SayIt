@@ -39,11 +39,18 @@ type OverlayState =
   | 'thinking'
   | 'fallback'
   | 'failure'
+  /** 「随便问」的答案卡。尺寸与 window/mod.rs 的 OVERLAY_ANSWER_* 是一对。 */
+  | 'answer'
   | 'error'
   | 'toast'
+interface AnswerSource {
+  title: string
+  url: string
+}
 /** 失败卡上那句恢复提示：只有确实存下来了才敢说"可以重新识别"。 */
 type FailureRecovery = 'unknown' | 'history' | 'none'
 type RecordingVisualPhase = 'preparing' | 'listening'
+type ThinkingNote = 'late' | 'translate' | 'ask'
 interface OverlayPayload {
   state?: OverlayState
   bars?: number[]
@@ -59,8 +66,16 @@ interface OverlayPayload {
   failureRecovery?: FailureRecovery
   /** 这张卡片对应的录音代次。按键事件与关闭回报都要带上它做代次校验。 */
   cardToken?: number
-  /** thinking 的变体：'late' = 已超时、仍在宽限期里等迟到结果。 */
-  thinkingNote?: 'late'
+  /**
+   * thinking 的变体：'late' = 已超时、仍在宽限期里等迟到结果；
+   * 'translate' / 'ask' = 这次是语音翻译 / 随便问，文案换成各自的。
+   */
+  thinkingNote?: ThinkingNote
+  answerQuestion?: string
+  answerText?: string
+  answerSources?: AnswerSource[]
+  /** 答案卡底部的说明（没联上网等）；空串 = 不显示 */
+  answerNote?: string
   /** thinking 时这次会走 AI 整理：文字换成「AI 整理中」并带星芒图标。 */
   thinkingAi?: boolean
   errorMessage?: string
@@ -74,6 +89,8 @@ interface OverlayPayload {
   streamingText?: string
   micSourceMode?: 'auto' | 'fixed' | null
   micSourceLabel?: string
+  /** 本次录音的模式（「翻译成日语」「随便问」）；空串 = 普通口述。录音和处理期间显示在胶囊上方。 */
+  modeLabel?: string
   /** 界面语言，由主窗随每次更新下发（见 OverlayCommonPayload.locale）。 */
   locale?: string
   _overlayShowId?: number
@@ -106,7 +123,11 @@ export default function Overlay() {
   const [failureRecovery, setFailureRecovery] = useState<FailureRecovery>('unknown')
   const [cardToken, setCardToken] = useState(0)
   const [fallbackReason, setFallbackReason] = useState('')
-  const [thinkingNote, setThinkingNote] = useState<'late' | null>(null)
+  const [thinkingNote, setThinkingNote] = useState<ThinkingNote | null>(null)
+  const [answerQuestion, setAnswerQuestion] = useState('')
+  const [answerText, setAnswerText] = useState('')
+  const [answerSources, setAnswerSources] = useState<AnswerSource[]>([])
+  const [answerNote, setAnswerNote] = useState('')
   const [thinkingAi, setThinkingAi] = useState(false)
   const [copyError, setCopyError] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -120,6 +141,7 @@ export default function Overlay() {
   const [warningTone, setWarningTone] = useState<'warn' | 'error'>('warn')
   const [micSourceMode, setMicSourceMode] = useState<'auto' | 'fixed' | null>(null)
   const [micSourceLabel, setMicSourceLabel] = useState('')
+  const [modeLabel, setModeLabel] = useState('')
   const rootRef = useRef<HTMLDivElement | null>(null)
   const pillRef = useRef<HTMLDivElement | null>(null)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -250,6 +272,14 @@ export default function Overlay() {
       }
       if (typeof payload.barCount === 'number' && payload.barCount > 0) setBarCount(payload.barCount)
       if (typeof payload.fallbackText === 'string') setFallbackText(payload.fallbackText)
+      if (typeof payload.answerQuestion === 'string') setAnswerQuestion(payload.answerQuestion)
+      if (typeof payload.answerText === 'string') setAnswerText(payload.answerText)
+      if (Array.isArray(payload.answerSources)) {
+        setAnswerSources(payload.answerSources.filter((source) => (
+          source && typeof source.url === 'string' && /^https?:\/\//i.test(source.url)
+        )))
+      }
+      if (typeof payload.answerNote === 'string') setAnswerNote(payload.answerNote)
       if (typeof payload.fallbackReason === 'string') setFallbackReason(payload.fallbackReason)
       if (typeof payload.cardToken === 'number') setCardToken(payload.cardToken)
       if (typeof payload.failureTitle === 'string') setFailureTitle(payload.failureTitle)
@@ -272,6 +302,8 @@ export default function Overlay() {
         setMicSourceMode(payload.micSourceMode)
       }
       if (typeof payload.micSourceLabel === 'string') setMicSourceLabel(payload.micSourceLabel)
+      // 不在下面的 waiting 分支里清：模式是开录**之前**就定好的，waiting 那一帧本身就带着它
+      if (typeof payload.modeLabel === 'string') setModeLabel(payload.modeLabel)
       if (payload.state === 'waiting') {
         setElapsedSec(0)
         setWarning('')
@@ -414,6 +446,7 @@ export default function Overlay() {
     && micSourceLabel.trim()
     && (visuallyListening || state === 'thinking'),
   )
+  const showModeHint = Boolean(modeLabel.trim() && (visuallyListening || state === 'thinking'))
 
   const { text: timerText, countdown: inCountdown, remainingSec } = useMemo(
     () => formatRecordingTimer(elapsedSec),
@@ -533,6 +566,32 @@ export default function Overlay() {
 
   const handleDismissCard = () => { dismissCard('user_closed') }
 
+  /**
+   * 复制答案。与结果卡的复制不同，**复制完不收起卡片**：结果卡复制完文字就交付了，
+   * 答案卡上用户可能还要接着读、或者点来源链接。
+   */
+  const handleCopyAnswer = async () => {
+    if (!answerText) return
+    const cardAtStart = presentationId
+    try {
+      await bridge.copyText(answerText)
+      if (cardAtStart !== cardRef.current.presentationId) return
+      setCopied(true)
+      setCopyError(false)
+      addRuntimeEvent('info', 'overlay', 'Answer card copied', { textLen: answerText.length })
+    } catch (error) {
+      addRuntimeEvent('error', 'overlay', 'Answer card copy failed', { error: String(error) })
+      if (cardAtStart !== cardRef.current.presentationId) return
+      setCopied(false)
+      setCopyError(true)
+    }
+  }
+
+  const handleOpenSource = (url: string) => {
+    addRuntimeEvent('info', 'overlay', 'Answer source opened')
+    void bridge.requestOpenLinkFromOverlay(url).catch(() => { })
+  }
+
   return (
     <div
       ref={rootRef}
@@ -562,8 +621,13 @@ export default function Overlay() {
                   ? t('overlay.copyFailedHint')
                   : fallbackReason === 'insertion_timeout'
                     ? t('overlay.insertionTimeoutHint')
-                    // mac 上卡片的复制键是 ⌘C（Rust 侧 keyboard/macos.rs 的 only_command_is_down）
-                    : t(IS_MAC ? 'overlay.fallbackHintMac' : 'overlay.fallbackHint')}
+                    // 语音翻译没完成：卡片上是没翻译的原文，必须说清楚，否则会被当成译文发出去
+                    : fallbackReason === 'translate_no_ai'
+                      ? t('overlay.translateNoAiHint')
+                      : fallbackReason === 'translate_failed'
+                        ? t('overlay.translateFailedHint')
+                        // mac 上卡片的复制键是 ⌘C（Rust 侧 keyboard/macos.rs 的 only_command_is_down）
+                        : t(IS_MAC ? 'overlay.fallbackHintMac' : 'overlay.fallbackHint')}
               </span>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -596,6 +660,83 @@ export default function Overlay() {
               {fallbackText || t('overlay.noText')}
             </p>
           </div>
+        </div>
+      ) : state === 'answer' ? (
+        /* 「随便问」的答案卡。
+         *
+         * 尺寸与 window/mod.rs 的 OVERLAY_ANSWER_WIDTH / _HEIGHT 是一对：max-w 要等于窗口宽，
+         * 各区块的 max-h 加起来不能超过窗口高（预算写在那边的布局自检单测里）。
+         * 改任何一个 max-h 都要回去改那条单测，否则内容从顶部被 overflow:hidden 裁掉，
+         * 先没的是标题行和关闭按钮。 */
+        <div
+          data-overlay-content
+          className="pointer-events-auto flex w-full max-w-[560px] flex-col rounded-xl border px-4 py-4"
+          style={{
+            background: 'var(--overlay-bg)',
+            color: 'var(--overlay-text)',
+            borderColor: 'var(--overlay-border)',
+          }}
+        >
+          <div className="flex h-8 items-center justify-between gap-3">
+            <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium tracking-[0.16em]" style={{ color: 'var(--overlay-text-muted)' }}>
+              <Sparkles aria-hidden className="h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
+              {t('overlay.answerTitle')}
+            </span>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => { void handleCopyAnswer() }}
+                title={copied ? t('overlay.copied') : t('overlay.copyAnswer')}
+                aria-label={t('overlay.copyAnswer')}
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${copied
+                  ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+                  : 'border-white/10 bg-white/10 text-white/90 hover:bg-white/20'
+                  }`}
+              >
+                {copied ? <SuccessCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissCard}
+                title={t('window.close')}
+                aria-label={t('overlay.dismissAria')}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 transition-colors hover:bg-white/15 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          {/* 问题只占一行：它是识别出来的，用来让用户确认"问的是这句"，不需要读全。 */}
+          <p className="mt-2 truncate text-xs leading-5 select-text" style={{ color: 'var(--overlay-text-dim)' }} title={answerQuestion}>
+            {t('overlay.answerQuestion', { question: answerQuestion })}
+          </p>
+          <div className="mt-3 overflow-hidden rounded-lg px-3 py-3" style={{ background: 'var(--overlay-surface)' }}>
+            <p className="max-h-[270px] overflow-auto whitespace-pre-wrap break-words pr-1 text-sm leading-6 select-text">
+              {answerText}
+            </p>
+          </div>
+          {answerSources.length > 0 && (
+            <div className="mt-3 max-h-[64px] overflow-auto pr-1 text-xs leading-5">
+              <span style={{ color: 'var(--overlay-text-muted)' }}>{t('overlay.answerSources')}</span>
+              {answerSources.map((source, index) => (
+                <button
+                  key={source.url}
+                  type="button"
+                  onClick={() => handleOpenSource(source.url)}
+                  title={source.url}
+                  className="block w-full truncate text-left underline-offset-2 hover:underline"
+                  style={{ color: 'var(--overlay-text)' }}
+                >
+                  {`${index + 1}. ${source.title}`}
+                </button>
+              ))}
+            </div>
+          )}
+          {(answerNote || copyError) && (
+            <p className="mt-2 text-xs leading-4" style={{ color: copyError ? '#fca5a5' : 'var(--overlay-text-muted)' }}>
+              {copyError ? t('overlay.copyFailedHint') : answerNote}
+            </p>
+          )}
         </div>
       ) : state === 'failure' ? (
         /* 识别失败卡片。没有文本可交付，所以只有关闭按钮，也不注册 Ctrl+C。
@@ -671,7 +812,9 @@ export default function Overlay() {
           data-overlay-content
           className="flex flex-col items-center gap-2"
         >
-          {showMicSourceHint && (
+          {/* 模式提示和输入源提示共用这一条：原生侧给它留的高度只有一行（OVERLAY_MIC_HINT_HEIGHT），
+              两条分开摞起来会顶出窗口。模式在前，输入源 3 秒后消失时模式还在。 */}
+          {(showMicSourceHint || showModeHint) && (
             <div
               className="pointer-events-none flex min-w-0 max-w-[calc(100vw-16px)] items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full border px-3 py-1.5 font-normal"
               style={{
@@ -682,15 +825,35 @@ export default function Overlay() {
                 backdropFilter: 'blur(8px)',
               }}
             >
-              <MicVocal
-                className="h-3.5 w-3.5 shrink-0"
-                strokeWidth={1.8}
-                style={{ color: '#ffffff' }}
-                aria-hidden
-              />
-              <span className="min-w-0 truncate text-xs font-normal" style={{ color: '#ffffff' }}>
-                {micSourceLabel}
-              </span>
+              {showModeHint && (
+                <>
+                  <Sparkles
+                    className="h-3.5 w-3.5 shrink-0"
+                    strokeWidth={2}
+                    style={{ color: '#ffffff' }}
+                    aria-hidden
+                  />
+                  <span className="shrink-0 text-xs font-medium" style={{ color: '#ffffff' }}>
+                    {modeLabel}
+                  </span>
+                </>
+              )}
+              {showModeHint && showMicSourceHint && (
+                <span className="shrink-0 text-xs" style={{ color: 'var(--overlay-text-muted)' }} aria-hidden>·</span>
+              )}
+              {showMicSourceHint && (
+                <>
+                  <MicVocal
+                    className="h-3.5 w-3.5 shrink-0"
+                    strokeWidth={1.8}
+                    style={{ color: '#ffffff' }}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 truncate text-xs font-normal" style={{ color: '#ffffff' }}>
+                    {micSourceLabel}
+                  </span>
+                </>
+              )}
             </div>
           )}
           {showStreamingBubble && (
@@ -893,7 +1056,11 @@ export default function Overlay() {
                       )}
                       {thinkingNote === 'late'
                         ? t('overlay.awaitingLateResult')
-                        : t(thinkingAi ? 'overlay.processingAi' : 'overlay.processing')}
+                        : thinkingNote === 'translate'
+                          ? t('overlay.translating')
+                          : thinkingNote === 'ask'
+                            ? t('overlay.asking')
+                            : t(thinkingAi ? 'overlay.processingAi' : 'overlay.processing')}
                     </span>
                     {/* 这里**故意**不写「Esc 取消」。Esc 取消的能力照常生效（原生钩子 +
                         escape-action，与本组件无关），只是这行提示不该出现在悬浮窗上：

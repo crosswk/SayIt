@@ -35,6 +35,12 @@ const OVERLAY_FALLBACK_HEIGHT: f64 = 224.0;
 /// 最长的那条错误文案（err.provider.forbidden，64 字）在 480 下折两行，高度 126，容量内。
 const OVERLAY_FAILURE_WIDTH: f64 = 480.0;
 const OVERLAY_FAILURE_HEIGHT: f64 = 176.0;
+/// 「随便问」的答案卡：问题一行 + 可滚动的答案区 + 来源列表，比结果卡大得多。
+/// **必须与 Overlay.tsx 答案卡的 max-w 和各区块的 max-h 一起改**：内容是底边锚定的，
+/// 装不下的部分从顶部被 overflow:hidden 裁掉（标题和关闭按钮先没）。
+/// 高度预算见 every_layout_fits_its_content_under_os_text_scale 里 answer 那一行。
+const OVERLAY_ANSWER_WIDTH: f64 = 560.0;
+const OVERLAY_ANSWER_HEIGHT: f64 = 530.0;
 // 流式实时显示：录音气泡 + 波形条堆叠，需要更宽更高的窗口
 const OVERLAY_STREAMING_WIDTH: f64 = 480.0;
 const OVERLAY_STREAMING_HEIGHT: f64 = 200.0;
@@ -87,6 +93,8 @@ enum OverlayLayout {
     Fallback,
     /// 识别失败卡片：带关闭按钮，因此同样需要交互。
     Failure,
+    /// 「随便问」答案卡：复制、关闭按钮和来源链接都要能点，也要能滚动答案。
+    Answer,
     /// 流式实时显示：气泡 + 波形，窗口更大且非交互
     Streaming,
     StreamingWithMicHint,
@@ -98,7 +106,7 @@ impl OverlayLayout {
     /// ⚠️ 非交互布局会 `set_ignore_cursor_events(true)`，窗口整体点击穿透。
     /// 新增任何"有按钮的"状态都必须在这里返回 true，否则按钮在界面上看得见、点不到。
     fn is_interactive(&self) -> bool {
-        matches!(self, OverlayLayout::Fallback | OverlayLayout::Failure)
+        matches!(self, OverlayLayout::Fallback | OverlayLayout::Failure | OverlayLayout::Answer)
     }
 
     /// 该布局期望的设计尺寸（宽, 高），单位是 CSS px。
@@ -114,6 +122,7 @@ impl OverlayLayout {
             ),
             OverlayLayout::Fallback => (OVERLAY_FALLBACK_WIDTH, OVERLAY_FALLBACK_HEIGHT),
             OverlayLayout::Failure => (OVERLAY_FAILURE_WIDTH, OVERLAY_FAILURE_HEIGHT),
+            OverlayLayout::Answer => (OVERLAY_ANSWER_WIDTH, OVERLAY_ANSWER_HEIGHT),
             OverlayLayout::Streaming => (OVERLAY_STREAMING_WIDTH, OVERLAY_STREAMING_HEIGHT),
             OverlayLayout::StreamingWithMicHint => (
                 OVERLAY_STREAMING_WIDTH,
@@ -600,15 +609,21 @@ impl WindowState {
                 .and_then(Value::as_str)
                 .map(|s| !s.trim().is_empty())
                 .unwrap_or(false);
-        let mic_hint_on = data
-            .get("micSourceLabel")
-            .and_then(Value::as_str)
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false);
+        // 胶囊上方那条提示：输入源（开录 3 秒）或模式（翻译 / 随便问，整次录音）有一个就要留出高度。
+        // 两者在 Overlay.tsx 里画在同一行，所以高度还是一行的 OVERLAY_MIC_HINT_HEIGHT。
+        let non_empty = |key: &str| {
+            data.get(key)
+                .and_then(Value::as_str)
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
+        };
+        let mic_hint_on = non_empty("micSourceLabel") || non_empty("modeLabel");
         let candidate_layout = if state == Some("fallback") {
             OverlayLayout::Fallback
         } else if state == Some("failure") {
             OverlayLayout::Failure
+        } else if state == Some("answer") {
+            OverlayLayout::Answer
         } else if state == Some("listening") && streaming_on && mic_hint_on {
             OverlayLayout::StreamingWithMicHint
         } else if state == Some("listening") && streaming_on {
@@ -1418,6 +1433,10 @@ mod tests {
             // 加上恢复提示 126 —— 旧窗口 150 只能装 134，余量 4px。断言写松了，
             // 于是这条自检在真实最坏情况下照样全绿。
             ("failure", OverlayLayout::Failure, OVERLAY_ROOT_PADDING_BOTTOM + 146.0),
+            // 答案卡全部区块撑满时：py-4(32) + 边框 2 + 标题行 32 + 问题行 mt-2 8 + 20
+            //   + 答案区 mt-3 12 + py-3 24 + max-h 270 + 来源区 mt-3 12 + max-h 64
+            //   + 说明行 mt-2 8 + 16 = 500
+            ("answer", OverlayLayout::Answer, OVERLAY_ROOT_PADDING_BOTTOM + 500.0),
             ("streaming", OverlayLayout::Streaming, required_css_height() + 8.0 + 110.0),
             (
                 "streaming_mic_hint",
@@ -1518,7 +1537,7 @@ mod tests {
     #[test]
     fn only_card_layouts_receive_mouse_clicks() {
         let expected = |layout: &OverlayLayout| match layout {
-            OverlayLayout::Fallback | OverlayLayout::Failure => true,
+            OverlayLayout::Fallback | OverlayLayout::Failure | OverlayLayout::Answer => true,
             OverlayLayout::Base
             | OverlayLayout::BaseWithMicHint
             | OverlayLayout::Streaming
@@ -1529,6 +1548,7 @@ mod tests {
             OverlayLayout::BaseWithMicHint,
             OverlayLayout::Fallback,
             OverlayLayout::Failure,
+            OverlayLayout::Answer,
             OverlayLayout::Streaming,
             OverlayLayout::StreamingWithMicHint,
         ] {
@@ -1555,6 +1575,22 @@ mod tests {
         assert_eq!(
             layouts,
             vec![OverlayLayout::BaseWithMicHint, OverlayLayout::Failure],
+        );
+    }
+
+    /// 翻译 / 随便问的模式提示整次录音都在胶囊上方，没有输入源提示时也要留出那一行。
+    #[test]
+    fn mode_label_reserves_the_hint_row_while_listening_and_thinking() {
+        assert_eq!(
+            layouts_after(&[
+                json!({ "state": "listening", "modeLabel": "Translate to Japanese" }),
+                json!({ "state": "thinking", "modeLabel": "Translate to Japanese" }),
+            ]),
+            vec![OverlayLayout::BaseWithMicHint, OverlayLayout::BaseWithMicHint],
+        );
+        assert_eq!(
+            layouts_after(&[json!({ "state": "listening", "modeLabel": "" })]),
+            vec![OverlayLayout::Base],
         );
     }
 

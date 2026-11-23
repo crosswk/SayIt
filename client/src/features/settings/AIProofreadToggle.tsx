@@ -12,6 +12,7 @@ import { refreshRecorderSettings } from '@/services/recorder'
 import { pttShortcutConflictsWithAccelerator } from '@/lib/shortcutKeys'
 import * as bridge from '@/services/bridge'
 import { MAX_RECORDING_SEC } from '@/services/recorder/types'
+import { voiceActionShortcutConflict } from '@/services/voiceActions/shortcutConflicts'
 
 export default function AIProofreadToggle() {
   const t = useT()
@@ -31,14 +32,14 @@ export default function AIProofreadToggle() {
 
   const validateShortcut = async (value: string) => {
     const [ptt, handsFree, presetShortcuts] = await Promise.all([
-      getSetting<string>('shortcutPTT', 'ControlRight'),
+      getSetting<string>('shortcutPTT', ''),
       getSetting<string>('shortcutHandsFree', 'AltRight'),
       getPresetShortcuts(),
     ])
     if (pttShortcutConflictsWithAccelerator(ptt, value)) return t('aiProofread.shortcutConflictPtt')
     if (handsFree === value) return t('aiProofread.shortcutConflictHandsFree')
     if (Object.values(presetShortcuts).includes(value)) return t('aiProofread.shortcutConflictPreset')
-    return null
+    return voiceActionShortcutConflict((existing) => existing === value)
   }
 
   const saveShortcut = async (value: string) => {

@@ -62,7 +62,10 @@ const INSERTION_EVENT = /(Paste decision|External text insertion|fallback|Target
 export const AI_LOG_SOURCE = 'ai'
 export const AI_EVENT_REQUEST = 'ai.request'
 export const AI_EVENT_OUTCOME = 'ai.outcome'
-const AI_KEY_EVENTS = new Set<string>([AI_EVENT_REQUEST, AI_EVENT_OUTCOME])
+/** 「随便问」的请求与结论（只有长度、模型、联网方式）。量：每次提问 2 条。 */
+export const AI_EVENT_ASK_REQUEST = 'ai.ask.request'
+export const AI_EVENT_ASK_OUTCOME = 'ai.ask.outcome'
+const AI_KEY_EVENTS = new Set<string>([AI_EVENT_REQUEST, AI_EVENT_OUTCOME, AI_EVENT_ASK_REQUEST, AI_EVENT_ASK_OUTCOME])
 
 let totalAudioBytes = 0
 

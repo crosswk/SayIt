@@ -83,7 +83,7 @@ fn thinking_overrides(config: &AiProviderConfig) -> Option<serde_json::Value> {
     Some(disable_thinking_overrides())
 }
 
-fn host_of(api_url: &str) -> Option<String> {
+pub(super) fn host_of(api_url: &str) -> Option<String> {
     reqwest::Url::parse(api_url.trim())
         .ok()
         .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
@@ -213,15 +213,15 @@ fn rejected_thinking_field(body: &str, overrides: &serde_json::Value) -> Option<
 
 /// 一次 chat/completions 往返的结果。响应体在这里就读完，调用方不必再和 `resp` 的
 /// 所有权打交道 —— 摘要必须在读 body 之前取（读 body 会消费掉 resp）。
-struct ChatHttpResponse {
-    status: reqwest::StatusCode,
-    summary: String,
-    body: String,
+pub(super) struct ChatHttpResponse {
+    pub(super) status: reqwest::StatusCode,
+    pub(super) summary: String,
+    pub(super) body: String,
 }
 
 /// 发送失败和读响应体失败要分开报：前者是网络/DNS/TLS，后者是连接中途断了，
 /// 归成同一条日志会让排查时分不清该查哪一边。
-enum ChatHttpError {
+pub(super) enum ChatHttpError {
     Send(reqwest::Error),
     ReadBody(reqwest::Error),
 }
@@ -268,7 +268,7 @@ async fn send_chat_once(
 /// 校对和「测试连接」共用这一条：用户在设置页点过测试，结论就已经缓存好了，
 /// 正式校对时直接命中 —— 那次多出来的往返基本落在测试上，用户感知不到。
 /// 顺带也保证了「测试通了」和「实际请求」用的是同一组参数。
-async fn send_chat_with_thinking_fallback(
+pub(super) async fn send_chat_with_thinking_fallback(
     url: &str,
     config: &AiProviderConfig,
     base_body: &serde_json::Value,
@@ -599,7 +599,7 @@ pub async fn test_connection(config: &AiProviderConfig) -> TestResult {
 }
 
 /// Convert reqwest errors into concise diagnostic details.
-fn describe_reqwest_error(e: &reqwest::Error) -> String {
+pub(super) fn describe_reqwest_error(e: &reqwest::Error) -> String {
     let raw = format!("{}", e);
     if e.is_timeout() {
         return "Request timed out; check the network connection and API URL".to_string();
@@ -633,7 +633,7 @@ fn describe_reqwest_error(e: &reqwest::Error) -> String {
 }
 
 /// 规范化 base URL
-fn normalize_base_url(url: &str) -> String {
+pub(super) fn normalize_base_url(url: &str) -> String {
     let trimmed = url.trim().trim_end_matches('/');
     // 用户把文档里的**完整端点**整条粘进来是最常见的填法 —— 各家文档（智谱、DeepSeek、
     // 硅基流动…）示例里给的都是 `.../chat/completions`，而这一栏要的是它前面那一截。
@@ -662,7 +662,7 @@ fn normalize_base_url(url: &str) -> String {
 }
 
 /// 从 chat completion 响应中提取文本
-fn extract_chat_completion_text(data: &serde_json::Value) -> Option<String> {
+pub(super) fn extract_chat_completion_text(data: &serde_json::Value) -> Option<String> {
     let content = data
         .get("choices")?
         .get(0)?
@@ -690,7 +690,7 @@ fn extract_chat_completion_text(data: &serde_json::Value) -> Option<String> {
 }
 
 /// 去除 <think>...</think> 标签
-fn strip_thinking(text: &str) -> String {
+pub(super) fn strip_thinking(text: &str) -> String {
     let re = regex::Regex::new(r"(?is)<think>.*?</think>").unwrap_or_else(|_| {
         // fallback: 不做处理
         regex::Regex::new(r"^$").unwrap()

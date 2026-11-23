@@ -10,7 +10,6 @@ import { listMicrophones, normalizeSelectedMicId } from '@/services/audio'
 import { resolveMicPlan, type MicPlan } from '@/services/micRouting'
 import { refreshRecorderSettings } from '@/services/recorder'
 import { getPresetShortcuts, getSetting, setSetting } from '@/services/store'
-import { getDefault } from '@/services/defaults'
 import { drawBars, resetWaveform } from '@/services/waveform'
 import { Switch } from '@/components/ui/switch'
 import { Segmented } from '@/components/ui/segmented'
@@ -19,8 +18,9 @@ import BackupSection from './BackupSection'
 import WebDavSection from './WebDavSection'
 import MicrophoneSection from './MicrophoneSection'
 import type { MicVolumeLevel } from './MicrophoneSection'
-import { ComboShortcutInput, PTTShortcutInput } from './ShortcutInputs'
-import { pttShortcutConflictsWithAccelerator } from '@/lib/shortcutKeys'
+import { ComboShortcutInput } from './ShortcutInputs'
+import VoiceActionsSection from './VoiceActionsSection'
+import { voiceActionShortcutConflict } from '@/services/voiceActions/shortcutConflicts'
 import { t, type LanguagePreference, type TranslationKey } from '@/i18n'
 import { useT } from '@/i18n/useT'
 import { getLanguagePreference, switchLanguage } from '@/stores/language'
@@ -62,8 +62,6 @@ export default function GeneralSettingsPage() {
   const [micError, setMicError] = useState('')
   const [muteSystemAudio, setMuteSystemAudio] = useState(false)
   const [protectClipboard, setProtectClipboard] = useState(true)
-  // 兜底值统一从 defaults 取，不在这里写第二份字面量
-  const [pttKey, setPttKey] = useState(() => getDefault<string>('shortcutPTT', ''))
   const [handsFreeKey, setHandsFreeKey] = useState('AltRight')
   const [aiToggleKey, setAiToggleKey] = useState('')
   const [historyEnabled, setHistoryEnabled] = useState(true)
@@ -128,7 +126,6 @@ export default function GeneralSettingsPage() {
         await refreshRecorderSettings()
       }
     }).catch(() => { })
-    getSetting<string>('shortcutPTT').then((value) => setPttKey(value))
     getSetting('shortcutHandsFree', 'AltRight').then((value) => setHandsFreeKey(value as string))
     getSetting('shortcutToggleAi', '').then((value) => setAiToggleKey(value as string))
     listMicrophones().then(setMics).catch(() => { })
@@ -168,35 +165,18 @@ export default function GeneralSettingsPage() {
   const toggleReadySound = async () => { const next = !readySoundEnabled; setReadySoundEnabled(next); await setSetting('readySoundEnabled', next); await refreshRecorderSettings() }
   const handleAudioRetentionDaysChange = async (value: number) => { setAudioRetentionDays(value); await setSetting('audioRetentionDays', value) }
   const handleLogRetentionDaysChange = async (value: number) => { setLogRetentionDays(value); await setSetting('logRetentionDays', value) }
-  const handlePTTChange = async (value: string) => { setPttKey(value); await setSetting('shortcutPTT', value); bridge.notifyShortcutsChanged(); refreshPTTSetting() }
   const handleHandsFreeChange = async (value: string) => { setHandsFreeKey(value); await setSetting('shortcutHandsFree', value); bridge.notifyShortcutsChanged(); refreshPTTSetting() }
 
-  // 应用内部快捷键互斥：免提和按住说话绑同一个键，两个功能会同时被触发；
-  // 预设切换的组合键同理。提交前拦下来，而不是等用户按了才发现行为诡异。
-  const validatePTT = useCallback(async (value: string) => {
-    if (!value) return null
-    if (pttShortcutConflictsWithAccelerator(value, handsFreeKey)) {
-      return t('settings.shortcuts.conflictHandsFree')
-    }
-    if (pttShortcutConflictsWithAccelerator(value, aiToggleKey)) {
-      return t('settings.shortcuts.conflictAiToggle')
-    }
-    const presetShortcuts = await getPresetShortcuts()
-    if (Object.values(presetShortcuts).some(
-      (shortcut) => pttShortcutConflictsWithAccelerator(value, shortcut),
-    )) return t('settings.shortcuts.conflictPreset')
-    return null
-  }, [handsFreeKey, aiToggleKey])
+  // 应用内部快捷键互斥：免提和预设切换、AI 整理开关、翻译 / 随便问绑同一个键，
+  // 两个功能会同时被触发。提交前拦下来，而不是等用户按了才发现行为诡异。
+  // （「按住说话」2026-11 下线，这里不再有它。）
   const validateHandsFree = useCallback(async (value: string) => {
     if (!value) return null
-    if (pttShortcutConflictsWithAccelerator(pttKey, value)) {
-      return t('settings.shortcuts.conflictPtt')
-    }
     if (value === aiToggleKey) return t('settings.shortcuts.conflictAiToggle')
     const presetShortcuts = await getPresetShortcuts()
     if (Object.values(presetShortcuts).includes(value)) return t('settings.shortcuts.conflictPreset')
-    return null
-  }, [pttKey, aiToggleKey])
+    return voiceActionShortcutConflict((existing) => existing === value)
+  }, [aiToggleKey])
 
   const drawWaveform = useCallback((analyser: AnalyserNode) => {
     const canvas = canvasRef.current; if (!canvas) return
@@ -308,13 +288,8 @@ export default function GeneralSettingsPage() {
                 label={<ShortcutLabel label={t('settings.shortcuts.handsFree')} help={t(IS_MAC ? 'settings.shortcuts.handsFreeHelpMac' : 'settings.shortcuts.handsFreeHelp')} />}
                 description={t('settings.shortcuts.handsFreeDesc')}
               />
-              <PTTShortcutInput
-                value={pttKey}
-                onChange={handlePTTChange}
-                validate={validatePTT}
-                label={<ShortcutLabel label={t('settings.shortcuts.ptt')} help={t(IS_MAC ? 'settings.shortcuts.pttHelpMac' : 'settings.shortcuts.pttHelp')} />}
-                description={t('settings.shortcuts.pttDesc')}
-              />
+              {/* 语音翻译 / 随便问：默认关，关着时只有一行开关 */}
+              <VoiceActionsSection />
             </div>
           </CardContent>
         </Card>

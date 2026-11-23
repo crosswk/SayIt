@@ -143,6 +143,9 @@ export async function polishWithClientAi(
     asrChars: asrText.length,
   })
 
+  const timeoutMs = startOptions?.aiTimeoutMs && startOptions.aiTimeoutMs > 0
+    ? startOptions.aiTimeoutMs
+    : CLIENT_AI_TIMEOUT_MS
   let timeoutId: ReturnType<typeof setTimeout> | undefined
   try {
     const request = invoke<AiResult>('cloud_polish', {
@@ -162,8 +165,8 @@ export async function polishWithClientAi(
       request,
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(
-          () => reject(new Error(`Custom AI timed out after ${CLIENT_AI_TIMEOUT_MS}ms`)),
-          CLIENT_AI_TIMEOUT_MS,
+          () => reject(new Error(`Custom AI timed out after ${timeoutMs}ms`)),
+          timeoutMs,
         )
       }),
     ])

@@ -101,6 +101,11 @@ export interface StartOptions {
   language?: string
   /** 是否开启流式实时显示：识别过程中把中间结果实时推给悬浮窗 */
   streamingDisplay?: boolean
+  /**
+   * 本机 AI 调用的超时。缺省用 clientAiPolish 的 8 秒 —— 那是给润色定的，润色超时就插原文，
+   * 用户损失不大。语音翻译超时就等于整次白说，所以它给得更长。
+   */
+  aiTimeoutMs?: number
 }
 
 export interface StopOptions {

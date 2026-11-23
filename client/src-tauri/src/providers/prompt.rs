@@ -38,7 +38,7 @@ pub fn wrap_user_text(text: &str, context: Option<&TextContext>) -> String {
     )
 }
 
-fn escape_xml(value: &str) -> String {
+pub(super) fn escape_xml(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -47,7 +47,7 @@ fn escape_xml(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-fn clip_head(value: &str, limit: usize) -> String {
+pub(super) fn clip_head(value: &str, limit: usize) -> String {
     value.chars().take(limit).collect()
 }
 

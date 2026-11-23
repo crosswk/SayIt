@@ -930,6 +930,11 @@ export default function AIProviderSection() {
             {serverAiSourceError && (
               <Feedback className="mt-2" tone="error" message={t('ai.err.saveFailed')} />
             )}
+            {/* 服务器内置的 AI 整理已经停了，但选项先留着（老版本客户端还在用这个字段）。
+                选着它的用户实际拿到的是识别原文，必须在这里说清楚、并指向唯一的出路。 */}
+            {serverAiSource === 'managed' && (
+              <Feedback className="mt-3" tone="warning" message={t('ai.serverSource.retiredWarning')} />
+            )}
           </section>
         )}
 

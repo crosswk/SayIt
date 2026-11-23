@@ -492,15 +492,17 @@ impl PttKeyConfig {
     }
 }
 
-/// 「按住说话」的默认键，同时也是配置非法时的回退。
+/// 解析器的回退键：PTT 配置非法时用它。
+///
+/// 「按住说话」2026-11 下线后，传进来的设置恒为空串（crate::defaults::SHORTCUT_PTT），
+/// 这条回退实际走不到；留着是因为 PTT 实验页和解析器的测试还用它。**别把它接回用户默认值**。
 ///
 /// **不能是 Shift**：长按右 Shift 约 8 秒会触发 Windows 筛选键，那之后我们收不到
-/// 这次「松开」，录音不会随手指抬起而结束。这里曾经是 ShiftRight，于是每台新装的
-/// 机器开箱就绑在那个键上（前端也一样，见 services/defaults.ts）。
-/// 右 Ctrl 位置相近、没有辅助功能陷阱，也不和免提的默认键（右 Alt）撞。
-///
-/// 值在 crate::defaults，那里有与前端 defaults.ts 的对账测试。
-const DEFAULT_PTT_SETTING: &str = crate::defaults::SHORTCUT_PTT;
+/// 这次「松开」，录音不会随手指抬起而结束。
+#[cfg(not(target_os = "macos"))]
+const DEFAULT_PTT_SETTING: &str = "ControlRight";
+#[cfg(target_os = "macos")]
+const DEFAULT_PTT_SETTING: &str = "AltRight";
 /// 与 DEFAULT_PTT_SETTING 对应的键：Windows 右 Ctrl，macOS 右 ⌥（MacBook 没有右 Ctrl）。
 #[cfg(not(target_os = "macos"))]
 const DEFAULT_PTT_VK: u32 = 0xA3;
@@ -741,6 +743,8 @@ enum HookAction {
     /// 切换润色模式。只有 mac 的 event tap 会发：系统快捷键接不住的、只带 ⌥ / ⇧ 的组合键
     /// （见 keyboard/macos.rs 的 TAP_COMBOS）。Windows 上这类组合仍由 global_shortcut 处理。
     PresetSwitch { preset_id: String },
+    /// 语音翻译 / 随便问。同 PresetSwitch，只有 mac 的 event tap 会发；event 是前端事件名。
+    VoiceAction { event: &'static str, vk: u32 },
 }
 
 const PTT_RELEASING_BIT: u64 = 1 << 63;
@@ -1499,6 +1503,15 @@ fn spawn_dispatcher(
                         // 载荷与 commands/shortcuts.rs 里系统快捷键发的一致
                         let _ = dispatch_state.app_handle.emit("switch-preset", serde_json::json!({
                             "presetId": preset_id,
+                        }));
+                    }
+                    HookAction::VoiceAction { event, vk } => {
+                        crate::commands::system::write_log_line(
+                            &format!("[RUST] [voice-action] {} vk={} (event tap)", event, vk)
+                        );
+                        // 载荷与 commands/shortcuts.rs 里系统快捷键发的一致
+                        let _ = dispatch_state.app_handle.emit(event, serde_json::json!({
+                            "source": "event_tap",
                         }));
                     }
                 }

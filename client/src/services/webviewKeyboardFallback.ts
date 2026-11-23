@@ -13,12 +13,8 @@ import { emit } from '@tauri-apps/api/event'
 import { IS_MAC } from '@/lib/platform'
 import { getPTTPhysicalKeyStates } from './bridge'
 import { getSetting } from './store'
-import { getDefault } from './defaults'
 import {
-  canonicalizePTTShortcut,
   isPTTModifierCode,
-  isValidPTTShortcut,
-  parsePTTShortcut,
   PTT_CODE_TO_VK,
   SETTING_TO_VK,
   settingToCode,
@@ -260,31 +256,10 @@ function handleWindowBlur() {
 
 /** 刷新 PTT 设置（设置页面改键后调用） */
 export async function refreshPTTSetting() {
-  try {
-    // 不传字面量兜底值：默认键只在 services/defaults.ts 里定义一处，getSetting 会去读它。
-    const setting = await getSetting<string>('shortcutPTT')
-    const loadedSetting = String(setting ?? '')
-    if (!loadedSetting) {
-      pttSetting = ''
-      pttCodes = []
-    } else {
-      const canonical = canonicalizePTTShortcut(loadedSetting)
-      // allowLegacyReservedKeys：老用户存的可能是 Shift。那类绑定不再允许新设，
-      // 但已经存在的必须照原样监听 —— 判成非法就会走下面的回落，等于用户没改设置
-      // 却换了说话键，而且会开始响应一个他没绑过的键。
-      pttSetting = isValidPTTShortcut(canonical, { allowLegacyReservedKeys: true })
-        ? canonical
-        : getDefault<string>('shortcutPTT', '')
-      pttCodes = parsePTTShortcut(pttSetting)
-      if (pttSetting !== canonical) {
-        console.warn('[webview-kb] invalid PTT setting, falling back to the default:', loadedSetting)
-      }
-    }
-  } catch (error) {
-    pttSetting = getDefault<string>('shortcutPTT', '')
-    pttCodes = parsePTTShortcut(pttSetting)
-    console.warn('[webview-kb] failed to load PTT setting, using fallback:', error)
-  }
+  // 「按住说话」2026-11 下线：不读存量的 shortcutPTT（老用户存着右 Ctrl，导入旧配置也会带回来），
+  // 与 Rust 侧 defaults::SHORTCUT_PTT 同一口径。只剩免提走这条回退。
+  pttSetting = ''
+  pttCodes = []
   releasePTT('setting_refreshed')
 
   try {

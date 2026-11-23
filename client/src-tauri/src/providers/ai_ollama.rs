@@ -212,7 +212,7 @@ pub async fn test_connection(config: &AiProviderConfig) -> TestResult {
     }
 }
 
-fn normalize_url(url: &str) -> String {
+pub(super) fn normalize_url(url: &str) -> String {
     let trimmed = url.trim().trim_end_matches('/');
     if trimmed.ends_with("/api/generate") {
         trimmed.to_string()

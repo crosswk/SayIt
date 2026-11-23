@@ -119,6 +119,8 @@ export default function Home() {
         />
       </p>
 
+      {/* 服务器 AI 整理停止的通知走服务器公告（dev-notes/notice-server-ai-retired.json），
+          不在客户端内置：文案要能随时改、能撤，内置一份又会和公告重复出现两条。 */}
       <NoticeBanner />
 
       {isNewUser && (

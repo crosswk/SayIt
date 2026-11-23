@@ -8,21 +8,14 @@
 // 两个快捷键默认值按平台不同，先用宏给出字面量：storage 的种子是 JSON 字面量，
 // `concat!` 只吃字面量，用不了下面的 const。
 //
-// Windows：按住说话 = 右 Ctrl，免提 = 右 Alt。
-// macOS：MacBook 内置键盘没有右 Ctrl，改成按住说话 = 右 ⌥（AltRight），免提 = 右 ⌘（MetaRight）。
+// Windows：免提 = 右 Alt。macOS：免提 = 右 ⌘（MetaRight）。
 // 前端对应 services/defaults.ts 的 DEFAULTS 与 MAC_DEFAULT_OVERRIDES，下面的测试会对账。
-#[cfg(not(target_os = "macos"))]
+//
+// 「按住说话」已下线（2026-11）：默认键是空串、两个平台一样，所以不再需要按平台分的宏。
 #[macro_export]
 macro_rules! default_shortcut_ptt {
     () => {
-        "ControlRight"
-    };
-}
-#[cfg(target_os = "macos")]
-#[macro_export]
-macro_rules! default_shortcut_ptt {
-    () => {
-        "AltRight"
+        ""
     };
 }
 #[cfg(not(target_os = "macos"))]
@@ -40,8 +33,10 @@ macro_rules! default_shortcut_hands_free {
     };
 }
 
-/// 按住说话的默认键。不能是 Shift：长按右 Shift 约 8 秒会触发 Windows 筛选键，
-/// 松开后录音停不下来（前端 lib/shortcutKeys.ts 的 PTT_FORBIDDEN_CODES）。
+/// 按住说话的键。功能已下线，恒为空串 = 不监听（keyboard::ptt_key_config 把空串解析成 disabled）。
+///
+/// 运行时**不读**存量的 shortcutPTT：老用户库里存着右 Ctrl，导入旧配置 / 恢复备份也会把它带回来，
+/// 读了就是一个界面上看不见、改不了的全局热键。启动时还会把存量值清成空串（main.rs）。
 pub const SHORTCUT_PTT: &str = crate::default_shortcut_ptt!();
 /// 免提模式的默认键。
 pub const SHORTCUT_HANDS_FREE: &str = crate::default_shortcut_hands_free!();

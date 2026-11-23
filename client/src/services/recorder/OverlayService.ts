@@ -113,6 +113,8 @@ export class OverlayService {
   private activeFailureCard: { title: string; detail: string } | null = null
 
   private activeMicSourceHint: MicSourceHint | null = null
+  /** 见 setModeLabel。 */
+  private modeLabel = ''
   private micSourceHintHideId: ReturnType<typeof setTimeout> | null = null
   private micSourceHintGeneration = 0
   /** 常驻卡片的按键续期定时器；卡片一消失必须停掉，否则会替别人续期。 */
@@ -222,16 +224,31 @@ export class OverlayService {
     }
   }
 
+  /**
+   * 胶囊上方那条提示的内容：输入源（开录后 3 秒）+ 当前模式（翻译 / 随便问，整次录音都在）。
+   *
+   * modeLabel 和输入源放在同一个方法里带出去，是因为原生侧按这两个字段之一判断要不要把
+   * 窗口加高（window/mod.rs 的 mic_hint_on）：哪个出口漏带 modeLabel，那一帧窗口就会缩回去，
+   * 提示条被裁掉 —— 和 listeningPayload 上说的 `streaming` 是同一类坑。
+   */
   private getMicSourceHintPayload() {
+    const mode = { modeLabel: this.modeLabel }
     return this.activeMicSourceHint
       ? {
         micSourceMode: this.activeMicSourceHint.mode,
         micSourceLabel: this.activeMicSourceHint.label,
+        ...mode,
       }
       : {
         micSourceMode: null,
         micSourceLabel: '',
+        ...mode,
       }
+  }
+
+  /** 本次录音的模式提示（「翻译成日语」「随便问」）；口述输入传空串。开始录音前设置，回到空闲时清掉。 */
+  setModeLabel(label: string) {
+    this.modeLabel = label
   }
 
   /**
@@ -367,13 +384,19 @@ export class OverlayService {
    * @param options.ai 这次处理会走 AI 整理（按本次的 aiPolicy.allowCall，不按开关：
    *   开关开着但录音短于门槛时并不整理，那时显示「AI 整理中」就是假的）。
    */
-  showThinking(elapsedSec: number, token = 0, options: { ai?: boolean } = {}) {
+  showThinking(
+    elapsedSec: number,
+    token = 0,
+    options: { ai?: boolean; note?: 'translate' | 'ask' } = {},
+  ) {
     this.currentState = 'thinking'
     // PTT Lab 也复用 thinking 动画，但没有真实录音代次；token=0 时只显示，绝不吞全局 Esc。
     this.enterTransientState(token > 0 ? 'cancel_processing' : 'off', token)
     void bridge.updateOverlay({
       state: 'thinking',
-      ...(options.ai && { thinkingAi: true }),
+      // 翻译和提问都一定会调 AI，星芒和「AI 整理中」的文案由 note 换成各自的
+      ...((options.ai || options.note) && { thinkingAi: true }),
+      ...(options.note && { thinkingNote: options.note }),
       elapsedSec: clampSec(elapsedSec),
       ...this.getMicSourceHintPayload(),
       ...this.getCommonPayload(),
@@ -478,6 +501,42 @@ export class OverlayService {
     })
     // token=0 的 PTT Lab 预览没有 Orchestrator 代次，不能开启无人消费的全局按键接管。
     this.beginCardLifecycle(token, 'dismiss_fallback', text ? ['copy'] : [], { autoHide: false })
+  }
+
+  /**
+   * 「随便问」的答案卡。
+   *
+   * 和结果卡一样不自动消失：答案只在这里有一份（不插入、不进剪贴板），自动收起等于
+   * 让用户读到一半就没了。收场靠 Esc / 关闭按钮 / 开始下一次口述。
+   *
+   * **不接管 Ctrl+C**（结果卡接管）：答案卡常常会开着一段时间，用户同时在别的程序里
+   * 复制粘贴，这期间全局 Ctrl+C 被换成「复制答案」会把他的剪贴板悄悄换掉。复制走按钮。
+   */
+  showAnswer(params: {
+    question: string
+    answer: string
+    sources: { title: string; url: string }[]
+    /** 想联网但没联上时的说明；空串 = 不显示 */
+    note: string
+    token: number
+  }) {
+    this.currentState = 'fallback'
+    this.clearMicSourceHint()
+    addRuntimeEvent('info', 'overlay', 'Showing answer card', {
+      answerLen: params.answer.length,
+      sources: params.sources.length,
+      token: params.token,
+    })
+    void bridge.presentOverlay({
+      state: 'answer',
+      answerQuestion: params.question,
+      answerText: params.answer,
+      answerSources: params.sources,
+      answerNote: params.note,
+      cardToken: params.token,
+      ...this.getCommonPayload(),
+    })
+    this.beginCardLifecycle(params.token, 'dismiss_fallback', [], { autoHide: false })
   }
 
   /**

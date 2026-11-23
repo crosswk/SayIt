@@ -24,8 +24,8 @@ pub fn shortcuts_changed(
     hook: State<KeyboardHookManager>,
 ) {
     // Read settings
-    let ptt_setting = storage.get("shortcutPTT", None);
-    let ptt_str = ptt_setting.as_str().unwrap_or(crate::defaults::SHORTCUT_PTT);
+    // 「按住说话」已下线：不读存量设置（导入旧配置会把右 Ctrl 带回来），见 defaults::SHORTCUT_PTT
+    let ptt_str = crate::defaults::SHORTCUT_PTT;
     let hf_val = storage.get("shortcutHandsFree", None);
     let hf_key = hf_val.as_str().unwrap_or(crate::defaults::SHORTCUT_HANDS_FREE);
     let ai_toggle_val = storage.get("shortcutToggleAi", None);
@@ -38,7 +38,14 @@ pub fn shortcuts_changed(
     register_all_global_shortcuts(&app, storage.inner());
 }
 
-/// 集中注册所有 global_shortcut：免提组合键、AI 整理开关和各润色模式切换快捷键。
+/// 语音翻译 / 随便问的快捷键：(快捷键, 发给前端的事件)。设了就是开启，留空就是关闭。
+/// 只支持组合键（走 global_shortcut），不进底层键盘钩子。键名与前端 services/voiceActions/settings.ts 一致。
+const VOICE_ACTION_SHORTCUTS: [(&str, &str); 2] = [
+    ("shortcutTranslate", "toggle-translate"),
+    ("shortcutAsk", "toggle-ask"),
+];
+
+/// 集中注册所有 global_shortcut：免提组合键、AI 整理开关、语音翻译 / 随便问和各润色模式切换快捷键。
 ///
 /// `unregister_all` 会清空全部已注册的 global_shortcut，因此这两类必须在同一处
 /// 一次性重注册，否则会互相覆盖。单键（PTT/免提单键）不走这里，由底层键盘钩子处理。
@@ -101,6 +108,36 @@ pub fn register_all_global_shortcuts(app: &AppHandle, storage: &Storage) {
             log::warn!("Failed to register AI cleanup shortcut '{}': {}", ai_toggle_for_log, e);
         } else {
             log::info!("Registered AI cleanup shortcut: {}", ai_toggle_for_log);
+        }
+    }
+
+    // 语音翻译 / 随便问：设了组合键就是开启，没设就是关闭，没有单独的开关。
+    for (shortcut_key, event) in VOICE_ACTION_SHORTCUTS {
+        let accel = match storage.get(shortcut_key, None).as_str() {
+            Some(s) if !s.is_empty() && s.contains('+') => s.to_string(),
+            _ => continue,
+        };
+        #[cfg(target_os = "macos")]
+        let via_tap = route_to_event_tap(
+            &mut tap_combos,
+            &accel,
+            crate::keyboard::TapComboAction::VoiceAction(event),
+        );
+        #[cfg(not(target_os = "macos"))]
+        let via_tap = false;
+        if via_tap {
+            log::info!("Registered {} shortcut in the event tap: {}", event, accel);
+            continue;
+        }
+        let accel_for_log = accel.clone();
+        if let Err(e) = gs.on_shortcut(accel.as_str(), move |app, _shortcut, state| {
+            if state.state == ShortcutState::Pressed {
+                let _ = app.emit(event, serde_json::json!({ "source": "globalShortcut" }));
+            }
+        }) {
+            log::warn!("Failed to register {} shortcut '{}': {}", event, accel_for_log, e);
+        } else {
+            log::info!("Registered {} shortcut: {}", event, accel_for_log);
         }
     }
 

@@ -37,7 +37,8 @@ const DEFAULT_HANDS_FREE: string = getDefault<string>('shortcutHandsFree') || 'A
  */
 async function validateHandsFreeAgainstPTT(value: string): Promise<string | null> {
   if (!value) return null
-  const ptt = await getSetting('shortcutPTT', 'ControlRight') as string
+  // 「按住说话」已下线，默认是空串；这条检查只为极少数还没重启过的旧数据留着
+  const ptt = await getSetting('shortcutPTT', '') as string
   return pttShortcutConflictsWithAccelerator(ptt, value)
     ? t('settings.shortcuts.conflictPtt')
     : null

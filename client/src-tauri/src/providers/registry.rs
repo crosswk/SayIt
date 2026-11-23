@@ -2,7 +2,7 @@
 
 use super::types::*;
 use super::{
-    ai_ollama, ai_openai_compat, asr_deepseek, asr_doubao, asr_doubao_stream, asr_gemini,
+    ai_ask, ai_ollama, ai_openai_compat, asr_deepseek, asr_doubao, asr_doubao_stream, asr_gemini,
     asr_gemini_live, asr_groq, asr_mimo, asr_openai_chat_audio, asr_openai_compat,
     asr_openai_realtime, asr_openrouter, asr_qwen, asr_qwen_audio_stream, asr_qwen_omni,
     asr_qwen_realtime,
@@ -43,6 +43,33 @@ pub async fn cloud_polish(request: CloudPolishRequest) -> Result<AiResult, Strin
             format!("Unknown AI provider: {}", other),
         )),
     }
+}
+
+/// 「随便问」：回答一句口述的问题，可选联网（Tauri command）
+///
+/// 供应商清单与 cloud_polish 一致；Ollama 在 ai_ask 内部单独走 /api/generate。
+#[tauri::command]
+pub async fn ai_ask(request: ai_ask::AskRequest) -> Result<ai_ask::AskResult, String> {
+    match request.ai_config.provider.as_str() {
+        "openai_compat" | "deepseek" | "doubao" | "qwen" | "mimo" | "groq" | "zhipu"
+        | "openrouter" | "ollama" => ai_ask::ask(request).await,
+        other => Err(error_protocol::encode(
+            "connect_failed",
+            format!("Unknown AI provider: {}", other),
+        )),
+    }
+}
+
+/// 设置页：这份 AI 配置能不能用模型自带的联网搜索。返回 deepseek / qwen / zhipu / openrouter，不能则空串。
+#[tauri::command]
+pub fn ai_builtin_search_support(config: AiProviderConfig) -> String {
+    ai_ask::builtin_search_id(&config)
+}
+
+/// 设置页：测试 DeepSeek 搜索接口的密钥。成功返回结果条数。
+#[tauri::command]
+pub async fn test_ask_search(api_key: String) -> Result<usize, String> {
+    ai_ask::test_search(&api_key).await
 }
 
 /// 测试 AI 连接（Tauri command）

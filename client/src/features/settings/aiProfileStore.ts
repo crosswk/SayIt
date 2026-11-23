@@ -16,6 +16,7 @@
 import { getSetting, setSetting } from '@/services/store'
 import { addRuntimeEvent, SETTINGS_EVENT_MODEL_RENAMED } from '@/services/debugLog'
 import { CONTEXT_SELECTION_AI_PROFILE_KEY } from '@/services/transcription/selectionAi'
+import { VOICE_ACTION_KEYS } from '@/services/voiceActions/settings'
 import {
   AI_PROVIDERS,
   aiSettingKey,
@@ -131,12 +132,22 @@ export async function loadAiProfiles(): Promise<AiProfileState> {
   return { profiles, activeId }
 }
 
-/** 换名时并掉了重复项，「改写选区」那一项指着被并掉的 id 的话，改指留下的那条 */
+/**
+ * 换名时并掉了重复项，「改写选区」「语音翻译」「随便问」哪一项指着被并掉的 id，
+ * 就改指留下的那条。
+ */
 async function remapSelectionProfile(mergedInto: Record<string, string>): Promise<void> {
   if (Object.keys(mergedInto).length === 0) return
-  const current = await getSetting(CONTEXT_SELECTION_AI_PROFILE_KEY, '') as string
-  const next = current ? mergedInto[current] : undefined
-  if (next) await setSetting(CONTEXT_SELECTION_AI_PROFILE_KEY, next)
+  const keys = [
+    CONTEXT_SELECTION_AI_PROFILE_KEY,
+    VOICE_ACTION_KEYS.translateProfile,
+    VOICE_ACTION_KEYS.askProfile,
+  ]
+  await Promise.all(keys.map(async (key) => {
+    const current = await getSetting(key, '') as string
+    const next = current ? mergedInto[current] : undefined
+    if (next) await setSetting(key, next)
+  }))
 }
 
 /**

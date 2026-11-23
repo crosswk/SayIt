@@ -10,6 +10,8 @@ use crate::storage::Storage;
 pub fn collect_settings(storage: State<Storage>) -> Result<Value, String> {
     let keys = [
         "shortcutPTT", "shortcutPTTCombo", "shortcutHandsFree", "shortcutToggleAi",
+        "shortcutTranslate", "translate.targetLanguage",
+        "shortcutAsk", "ask.searchMode",
         "aiEnabled", "aiMinDurationSec",
         "autoLaunch", "selectedMic", "hotwords", "builtinHotwordSets",
         "stats", "activePresetId", "audioRetentionDays",

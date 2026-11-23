@@ -13,6 +13,7 @@ import {
   setPromptPresetsCache,
 } from '@/services/recorder'
 import * as bridge from '@/services/bridge'
+import { voiceActionShortcutConflict } from '@/services/voiceActions/shortcutConflicts'
 import { useActivePreset } from '@/hooks/useActivePreset'
 import { refreshActivePreset, setActivePresetKnown } from '@/stores/activePreset'
 import {
@@ -92,11 +93,11 @@ export default function AIInstructionsPage() {
   // 预设之间的重复不在这里拦：handleSetPresetShortcut 会自动把旧的清掉（后设的赢）。
   const validatePresetShortcut = async (value: string): Promise<string | null> => {
     if (!value) return null
-    const ptt = await getSetting('shortcutPTT', 'AltRight') as string
+    const ptt = await getSetting('shortcutPTT', '') as string
     const handsFree = await getSetting('shortcutHandsFree', 'Alt+L') as string
     if (value === ptt) return t('aiInstructions.conflictPtt')
     if (value === handsFree) return t('aiInstructions.conflictHandsFree')
-    return null
+    return voiceActionShortcutConflict((existing) => existing === value)
   }
 
   const handleSetPresetShortcut = async (presetId: string, accel: string) => {

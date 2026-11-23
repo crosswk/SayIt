@@ -572,6 +572,47 @@ export function onToggleHandsFree(cb: (data?: unknown) => void) {
   return () => { unlisten.then((fn) => fn()) }
 }
 
+/** 语音翻译 / 随便问的快捷键（Rust commands/shortcuts.rs 的 VOICE_ACTION_SHORTCUTS）。 */
+export function onToggleTranslate(cb: (data?: unknown) => void) {
+  const unlisten = listen<unknown>('toggle-translate', (event) => cb(event.payload))
+  return () => { unlisten.then((fn) => fn()) }
+}
+
+export function onToggleAsk(cb: (data?: unknown) => void) {
+  const unlisten = listen<unknown>('toggle-ask', (event) => cb(event.payload))
+  return () => { unlisten.then((fn) => fn()) }
+}
+
+/**
+ * 悬浮窗请主窗用浏览器打开一个链接（答案卡上的来源）。
+ *
+ * 不让悬浮窗自己调 shell.open：那要给 overlay 窗口单独开 shell 权限，而它是一个贴在
+ * 其它程序上方、渲染外部内容（模型回答里的链接）的窗口，权限越少越好。主窗本来就有
+ * shell:allow-open，校验也只在主窗做一次。
+ */
+export const OVERLAY_OPEN_LINK = 'overlay-open-link'
+
+export function requestOpenLinkFromOverlay(url: string) {
+  return emit(OVERLAY_OPEN_LINK, { url })
+}
+
+export function onOverlayOpenLink(cb: (data: { url: string }) => void) {
+  const unlisten = listen<{ url: string }>(OVERLAY_OPEN_LINK, (event) => cb(event.payload))
+  return () => { unlisten.then((fn) => fn()) }
+}
+
+/** 这份 AI 配置能不能用模型自带的联网搜索：deepseek / qwen / zhipu / openrouter，不能则空串。 */
+export function aiBuiltinSearchSupport(config: { provider: string; apiUrl: string; apiKey: string; model: string }) {
+  return invoke<string>('ai_builtin_search_support', {
+    config: { provider: config.provider, api_url: config.apiUrl, api_key: config.apiKey, model: config.model },
+  })
+}
+
+/** 用这把 DeepSeek 密钥搜一次，成功返回结果条数。 */
+export function testAskSearch(apiKey: string) {
+  return invoke<number>('test_ask_search', { apiKey })
+}
+
 export function onEscapeAction(cb: (data: { mode: EscapeActionMode; token: number }) => void) {
   const unlisten = listen<{ mode: EscapeActionMode; token: number }>('escape-action', (event) => cb(event.payload))
   return () => { unlisten.then((fn) => fn()) }

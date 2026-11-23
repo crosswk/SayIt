@@ -5,6 +5,17 @@ import { getProvider, MID_SESSION_DISCONNECT_ERROR, type TranscriptionProvider, 
 import { resolveAiPolicy, serverShouldPolish, type AiConfigSnapshot } from '../transcription/aiPolicy'
 import { getRuntimeServerAiSource } from '../transcription/serverAiSource'
 import { loadSelectionAiConfig } from '../transcription/selectionAi'
+import { open as shellOpen } from '@tauri-apps/plugin-shell'
+import {
+  defaultVoiceActionSettings,
+  loadAiProfileConfig,
+  loadVoiceActionSettings,
+  type VoiceActionSettings,
+  type VoiceIntent,
+} from '../voiceActions/settings'
+import { renderTranslatePrompt } from '../voiceActions/prompts'
+import { languageName } from '../voiceActions/languages'
+import { askQuestion, describeAskSearchNote } from '../voiceActions/ask'
 import { isStreamingDisplayReady } from '@/lib/asrModels'
 import {
   getActivePresetId,
@@ -64,7 +75,7 @@ import {
   isModifierPTTSetting as _isModifierPTTSetting,
   computeProcessingTimeoutMs as _computeProcessingTimeoutMs,
 } from './helpers'
-import { t } from '@/i18n'
+import { getLocale, t } from '@/i18n'
 import { describeProviderError } from '@/lib/errorMessages'
 import { cleanActiveMicLabel, describeMicSource, micSourceChanged } from './micSourceReminder'
 import {
@@ -101,6 +112,11 @@ const INSERTION_TIMEOUT_MS = 15000
 /** 顺延次数上限；用尽就强制把界面从「处理中」放出来。 */
 const MAX_INSERTION_TIMEOUT_EXTENSIONS = 3
 const MODIFIER_PTT_RELEASE_GUARD_MS = 200
+/**
+ * 语音翻译的 AI 超时。润色超时只是插原文，翻译超时等于整次白说，所以比润色的 8 秒长；
+ * 又必须短于处理超时（服务器模式基础 15 秒 + 按时长追加），否则界面先报「处理超时」。
+ */
+const TRANSLATE_AI_TIMEOUT_MS = 12_000
 
 function classifyHistoryProviderFailure(message: string): HistoryFailReasonCode {
   // 录音中掉线要单列：这段语音从未送达服务端，跟「服务端处理失败」的排查方向完全不同。
@@ -137,6 +153,8 @@ interface TimedOutProcessingContext {
   appContext: ActiveAppContext | null
   audioChunks: ArrayBuffer[]
   probeResult: ProbeResult | null
+  /** 这一次是口述、翻译还是提问。迟到结果到达时 run.intent 可能已属于下一次录音，所以随上下文快照。 */
+  intent: VoiceIntent
 }
 
 interface ResetToIdleOptions {
@@ -203,6 +221,8 @@ export class RecorderOrchestrator {
 
   /** 录音要用的设置（麦克风、AI 整理、热词……），见 RecordingSettings。 */
   private settings: RecordingSettings = defaultRecordingSettings()
+  /** 语音翻译 / 随便问的设置。与 settings 一起在 refreshRuntimeSettings 里读回。 */
+  private voiceActions: VoiceActionSettings = defaultVoiceActionSettings()
   /** Last successfully opened input route in this app process. Kept in memory on purpose. */
   private lastMicSourceIdentity: string | null = null
   /** 本次录音实际打开的麦克风：真实名字 + 是否虚拟设备（null = 判断不了）。每次开录重置。 */
@@ -616,6 +636,35 @@ export class RecorderOrchestrator {
       this.pttToggle(true)
     })
 
+    // 语音翻译 / 随便问：和免提一样按一次开始、再按一次结束。设了快捷键就是开启；
+    // 这里再判一次，是为了挡住快捷键刚清空、Rust 还没来得及注销的那一下。
+    const onVoiceAction = (intent: Exclude<VoiceIntent, 'dictate'>, payload: unknown) => {
+      if (this.pttSuppressed) {
+        addRuntimeEvent('info', 'ptt', `event:${intent} ignored`, { ignoreReason: 'ptt_suppressed' })
+        return
+      }
+      const enabled = intent === 'translate' ? this.voiceActions.translate.enabled : this.voiceActions.ask.enabled
+      if (!enabled && this.state === 'idle') {
+        addRuntimeEvent('info', 'ptt', `event:${intent} ignored`, { ignoreReason: 'feature_disabled' })
+        return
+      }
+      addRuntimeEvent('info', 'ptt', `event:${intent} accepted`, this.getPTTEventContext(payload))
+      this.pttToggle(true, intent)
+    }
+    bridge.onToggleTranslate((payload) => onVoiceAction('translate', payload))
+    bridge.onToggleAsk((payload) => onVoiceAction('ask', payload))
+
+    // 答案卡上的来源链接。只放行 http(s)：链接来自模型的回答，不能把任意协议交给系统打开。
+    bridge.onOverlayOpenLink(({ url }) => {
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url.trim())) {
+        addRuntimeEvent('warn', 'recorder', 'Refused to open a non-http link from the answer card')
+        return
+      }
+      void shellOpen(url.trim()).catch((error) => {
+        addRuntimeEvent('warn', 'recorder', 'Failed to open answer source link', { error: String(error) })
+      })
+    })
+
     // 9-minute warning from Rust keyboard hook (PTT hold mode)
     bridge.onPTTTimeoutWarning(() => {
       if (this.state === 'recording') {
@@ -736,6 +785,12 @@ export class RecorderOrchestrator {
       streamingDisplay: Boolean(streamingDisplay),
     }
     this.userStats = userStats
+    try {
+      this.voiceActions = await loadVoiceActionSettings()
+    } catch (error) {
+      // 读不回就沿用上一份：两个功能默认关，读失败不该连带口述输入一起用不了
+      addRuntimeEvent('warn', 'recorder', 'Could not load translate/ask settings', { error: String(error) })
+    }
     await this.overlayService.refreshSettings()
 
     // 热词 / 服务器语言彼此独立，并行加载而非依次 await，减少本函数的总耗时
@@ -907,6 +962,7 @@ export class RecorderOrchestrator {
     this.overlayService.stopListeningTicker()
     this.overlayService.resetWarnings()
     this.overlayService.resetStreamingText()
+    this.overlayService.setModeLabel('')
     // 安全网：若仍处于我们施加的系统静音中，确保恢复
     this.restoreSystemMuteIfNeeded()
     this.startRecordingLock = false
@@ -1177,6 +1233,7 @@ export class RecorderOrchestrator {
           appContext: this.run.currentActiveAppContext ? { ...this.run.currentActiveAppContext } : null,
           audioChunks: this.run.recordedChunks.slice(),
           probeResult: this.run.cachedProbeResult ? { ...this.run.cachedProbeResult } : null,
+          intent: this.run.intent,
         }, {
           allowInsertionWhenIdle: false,
           source: 'processing',
@@ -1412,9 +1469,9 @@ export class RecorderOrchestrator {
    * （调用方是 `void this.startRecording()`），锁永远不释放，之后每次按热键都被当成
    * 「正在启动」忽略 —— 热键全部失灵直到重启，悬浮窗停在「等待中」，日志里一个字都没有。
    */
-  private async startRecording() {
+  private async startRecording(intent: VoiceIntent = 'dictate') {
     try {
-      await this.startRecordingInner()
+      await this.startRecordingInner(intent)
     } catch (error) {
       const runId = this.activeRunId
       addRuntimeEvent('error', 'recorder', 'Failed to start recording', {
@@ -1434,7 +1491,7 @@ export class RecorderOrchestrator {
     }
   }
 
-  private async startRecordingInner() {
+  private async startRecordingInner(intent: VoiceIntent) {
     if (
       this.state !== 'idle'
       || this.startRecordingLock
@@ -1470,12 +1527,20 @@ export class RecorderOrchestrator {
 
     const runId = ++this.runSequence
     this.activeRunId = runId
+    this.run.intent = intent
     this.activeFallbackToken = 0
     this.startRecordingLock = true
     this.run.pendingStopWhileStarting = false
     this.timedOutProcessingContext = null
     this.micLevel.resetMuteState()
 
+    // 翻译 / 随便问在胶囊上方挂一条模式提示，整次录音和处理期间都在：按错了键（想口述却按成
+    // 翻译），用户在说话之前就能看出来。口述输入不挂，保持原样。
+    this.overlayService.setModeLabel(
+      intent === 'translate'
+        ? t('overlay.modeTranslate', { language: languageName(this.voiceActions.translate.targetLanguage, getLocale()) })
+        : intent === 'ask' ? t('overlay.modeAsk') : '',
+    )
     // 先给用户即时视觉反馈；overlay 不聚焦，因此后续原生上下文捕获仍指向原目标窗口。
     // 首次 WebView 已在启动空闲期预热，正常情况下这里只剩一次轻量 show + emit。
     this.overlayService.showWaiting()
@@ -1488,10 +1553,16 @@ export class RecorderOrchestrator {
     })
     let activeAppContext: ActiveAppContext | null = null
     let recordingContextFailed = false
+    // 编辑器正文只读给真正会用它的那一方：
+    //   口述 —— 上下文感知开着、且 AI 整理开着（原有口径）；
+    //   随便问 —— 「带上选中的文字」开着（只用选区，光标前后文不交出去，见 processAskResult）；
+    //   翻译 —— 一律不读，翻的是说出来的话。
+    const contextFeatureOn = intent === 'ask'
+      ? this.voiceActions.ask.useSelection
+      : intent === 'dictate' && this.settings.contextAwareWriting
+    const contextAiOn = intent === 'ask' ? true : this.settings.aiEnabled
+    const includeTextContext = contextFeatureOn && contextAiOn
     try {
-      // AI is the only consumer of editor text. If cleanup is off, do not read the text even when
-      // the preference remains enabled, so the privacy boundary matches actual behavior.
-      const includeTextContext = this.settings.contextAwareWriting && this.settings.aiEnabled
       const recordingContext = await bridge.getRecordingContext(includeTextContext)
       activeAppContext = recordingContext.appContext as unknown as ActiveAppContext
       this.run.cachedProbeResult = recordingContext.probe as unknown as ProbeResult
@@ -1511,8 +1582,8 @@ export class RecorderOrchestrator {
     const textContext = usableTextContext(activeAppContext?.textContext)
     // 必须在下面 delete 之前算：选区太长的判据就在原始的 textContext 上
     const textContextLog = describeTextContextForLog({
-      featureOn: this.settings.contextAwareWriting,
-      aiOn: this.settings.aiEnabled,
+      featureOn: contextFeatureOn,
+      aiOn: contextAiOn,
       captureFailed: recordingContextFailed,
       diag: activeAppContext?.textContextDiag,
       raw: activeAppContext?.textContext,
@@ -1533,7 +1604,16 @@ export class RecorderOrchestrator {
       hotwords: this.settings.hotwords,
       injectHotwords: this.settings.injectHotwords,
     })
-    if (textContext) {
+    if (intent === 'translate') {
+      // 翻译整份替换系统提示词：润色预设、应用规则、热词注入都是给「整理成口述原文」写的，
+      // 叠在翻译提示词上只会互相打架（比如中翻英预设 + 目标日语）。
+      const target = this.voiceActions.translate.targetLanguage
+      this.run.currentPromptResolution = {
+        ...this.run.currentPromptResolution,
+        systemPrompt: renderTranslatePrompt(this.voiceActions.translate.promptTemplate, target),
+        summary: `Translate -> ${target}`,
+      }
+    } else if (intent === 'dictate' && textContext) {
       this.run.currentPromptResolution = {
         ...this.run.currentPromptResolution,
         systemPrompt: withContextAwareInstructions(
@@ -1548,6 +1628,8 @@ export class RecorderOrchestrator {
     // 而且只在读到时才有。现在读没读到都并进下面那条一定落盘的 'Recording started'。
 
     addRuntimeEvent('info', 'recorder', 'Recording started', {
+      // 查「这次为什么没插字 / 为什么是译文」先看它：dictate | translate | ask
+      intent,
       micId: this.settings.micId || 'default',
       preset: this.run.currentPromptResolution.preset.id || this.run.currentPromptResolution.preset.name || 'none',
       targetCapture,
@@ -1606,49 +1688,63 @@ export class RecorderOrchestrator {
 
     // 冻结本次的 AI 配置。理由是事后解释：用户录完之后改了设置（这次排查里他就把
     // 门槛从 60 改成了 0），这一条的原因也不能跟着变。
+    // 翻译一定要调 AI（不受 AI 整理开关和短语音门槛管：那两个是给润色定的），而且一定由
+    // 本机调用（selectionAiOverride → 路由判成 custom，服务器模式下服务端只做识别）。
+    // 随便问的 AI 调用不走这条整理链路，识别这一段要的是原话，所以整理必须关掉。
+    const runAiEnabled = intent === 'translate' ? true : intent === 'ask' ? false : this.settings.aiEnabled
+    const runAiMinDurationSec = intent === 'dictate' ? this.settings.aiMinDurationSec : 0
     this.run.currentAiConfig = {
       workMode: this.provider.mode,
-      aiEnabled: this.settings.aiEnabled,
-      aiMinDurationSec: this.settings.aiMinDurationSec,
+      aiEnabled: runAiEnabled,
+      aiMinDurationSec: runAiMinDurationSec,
       serverAiSource: getRuntimeServerAiSource(),
+      ...(intent === 'translate' && { selectionAiOverride: true }),
     }
     this.run.currentOperationId = `${runId}-${Date.now().toString(36)}`
 
-    // 选区编辑单独选了模型时，这次录音改由本机用那个模型整理（见 selectionAi.ts）。
+    // 选区编辑单独选了模型时，这次录音改由本机用那个模型整理（见 selectionAi.ts）；
+    // 翻译单独选了模型时同理。
     // 读设置放进下面和建连、开麦并行的那一组里，不在这里 await：这一段处在
     // startRecordingLock 置位之后、外层兜底之外，多一个 await 就多一处让热键卡死的
     // 可能，开始录音也会慢一拍。没有选区时它不读设置，直接返回 null。
-    const selectionAiConfigPromise = this.settings.aiEnabled
-      ? loadSelectionAiConfig(textContext)
-      : Promise.resolve(null)
+    const selectionAiConfigPromise = intent === 'translate'
+      // 选的服务读不出来就跟随当前 AI，不让一次读设置失败把整次录音拖垮
+      ? loadAiProfileConfig(this.voiceActions.translate.profileId).catch(() => null)
+      : intent === 'dictate' && this.settings.aiEnabled
+        ? loadSelectionAiConfig(textContext)
+        : Promise.resolve(null)
 
+    // 选区只给口述的「选区编辑」用；随便问自己在 processAskResult 里取，不交给识别/整理链路
+    const providerTextContext = intent === 'dictate' ? textContext : undefined
     const promptOpts = this.run.currentPromptResolution
       ? {
         runId,
         operationId: this.run.currentOperationId,
         aiConfig: this.run.currentAiConfig,
-        systemPrompt: this.settings.aiEnabled ? this.run.currentPromptResolution.systemPrompt : undefined,
-        disableAi: !this.settings.aiEnabled,
-        aiMinDurationSec: this.settings.aiMinDurationSec,
+        systemPrompt: runAiEnabled ? this.run.currentPromptResolution.systemPrompt : undefined,
+        disableAi: !runAiEnabled,
+        aiMinDurationSec: runAiMinDurationSec,
         clientMeta: this.clientRuntimeInfo,
         appContext: activeAppContext,
-        textContext,
+        textContext: providerTextContext,
         hotwords: this.settings.hotwords.length > 0 ? this.settings.hotwords : undefined,
         language: this.settings.language || undefined,
         streamingDisplay: this.settings.streamingDisplay,
+        ...(intent === 'translate' && { aiTimeoutMs: TRANSLATE_AI_TIMEOUT_MS }),
       }
       : {
         runId,
         operationId: this.run.currentOperationId,
         aiConfig: this.run.currentAiConfig,
-        disableAi: !this.settings.aiEnabled,
-        aiMinDurationSec: this.settings.aiMinDurationSec,
+        disableAi: !runAiEnabled,
+        aiMinDurationSec: runAiMinDurationSec,
         clientMeta: this.clientRuntimeInfo,
         appContext: activeAppContext,
-        textContext,
+        textContext: providerTextContext,
         hotwords: this.settings.hotwords.length > 0 ? this.settings.hotwords : undefined,
         language: this.settings.language || undefined,
         streamingDisplay: this.settings.streamingDisplay,
+        ...(intent === 'translate' && { aiTimeoutMs: TRANSLATE_AI_TIMEOUT_MS }),
       }
 
     // Wrap the async setup so stopRecording can wait for it
@@ -1723,7 +1819,15 @@ export class RecorderOrchestrator {
       // 冻结的 AI 配置要带上 selectionAiOverride：停止录音时 aiPolicy 靠它判成本机整理，
       // 服务器模式下才会让服务端只做识别。
       let startOpts: typeof promptOpts & { selectionAiConfig?: typeof selectionAiConfig } = promptOpts
-      if (selectionAiConfig && this.run.currentAiConfig) {
+      if (intent === 'translate') {
+        // 覆盖标记在冻结配置时已经带上；这里只补上选定的那份服务（null = 跟随当前 AI）
+        startOpts = { ...promptOpts, selectionAiConfig }
+        addRuntimeEvent('info', 'ai', 'Translate run', {
+          target: this.voiceActions.translate.targetLanguage,
+          ownProfile: Boolean(selectionAiConfig),
+          ...(selectionAiConfig && { provider: selectionAiConfig.provider, model: selectionAiConfig.model }),
+        })
+      } else if (selectionAiConfig && this.run.currentAiConfig) {
         this.run.currentAiConfig = { ...this.run.currentAiConfig, selectionAiOverride: true }
         startOpts = { ...promptOpts, aiConfig: this.run.currentAiConfig, selectionAiConfig }
         addRuntimeEvent('info', 'ai', 'Selection edit uses its own AI service', {
@@ -1982,7 +2086,10 @@ export class RecorderOrchestrator {
       // peakAmplitude=0 且 silenceRatio=1 → 麦克风送来的是纯静音，与 ASR/网络无关。
       audioStats,
     })
-    this.overlayService.showThinking(audioDur, runId, { ai: aiPolicy.allowCall })
+    this.overlayService.showThinking(audioDur, runId, {
+      ai: aiPolicy.allowCall,
+      ...(this.run.intent !== 'dictate' && { note: this.run.intent }),
+    })
     let insertionExtensions = 0
     const onProcessingTimeout = () => {
       if (this.state !== 'processing' || !this.isRunCurrent(runId)) return
@@ -2020,6 +2127,7 @@ export class RecorderOrchestrator {
         appContext: this.run.currentActiveAppContext ? { ...this.run.currentActiveAppContext } : null,
         audioChunks: this.run.recordedChunks.slice(),
         probeResult: this.run.cachedProbeResult ? { ...this.run.cachedProbeResult } : null,
+        intent: this.run.intent,
       }
       this.timedOutProcessingContext = timedOutCtx
       this.lateResultAbandoned = false
@@ -2091,11 +2199,16 @@ export class RecorderOrchestrator {
 
   // ── Toggle / hands-free ──
 
-  private pttToggle(isHandsFree = false) {
+  /**
+   * @param intent 只在**开始**录音时有意义。录音中按任何一个切换键都是结束这一次 ——
+   *   用户按翻译键开的头、按免提键收的尾，这一次仍然是翻译，不会半路变成口述。
+   */
+  private pttToggle(isHandsFree = false, intent: VoiceIntent = 'dictate') {
     const now = Date.now()
     if (now - this.lastToggleTime < 500) {
       addRuntimeEvent('info', 'ptt', 'Ignored toggle request', {
         isHandsFree,
+        intent,
         ignoreReason: 'cooldown',
         recorderState: this.state,
       })
@@ -2111,9 +2224,10 @@ export class RecorderOrchestrator {
       }
       addRuntimeEvent('info', 'ptt', 'toggle -> startRecording', {
         isHandsFree,
+        intent,
         recorderState: this.state,
       })
-      void this.startRecording()
+      void this.startRecording(intent)
       return
     }
 
@@ -2260,6 +2374,10 @@ export class RecorderOrchestrator {
   ) {
     const runId = context.runId
     if (!this.isRunCurrent(runId)) return
+    if (context.intent === 'ask') {
+      await this.processAskResult(result, context)
+      return
+    }
 
     // llmText === asrText 说明这段没经过 AI 整理（极速模式，或后端未跑 LLM 直接回 asrText）。
     // 此时文本仍是纯 ASR，「格式规范」由我们兜底；AI 整理过的文本则把格式交给 AI，只做文本替换。
@@ -2387,6 +2505,22 @@ export class RecorderOrchestrator {
       return
     }
 
+    // 翻译没完成时手上只有原文。原文直接插进去，用户会以为「翻译成了这样」，
+    // 发出去才发现是中文 —— 所以改成结果卡，说清楚这是没翻译的原文，让他自己决定。
+    if (context.intent === 'translate' && result.aiStatus !== 'applied') {
+      addRuntimeEvent('warn', 'recorder', 'Translation did not complete; showing the transcript card', {
+        runId,
+        aiStatus: result.aiStatus,
+        aiReason: result.aiReason,
+      })
+      this.showFallbackAndReset(
+        textToPaste,
+        result.aiReason === 'config_incomplete' ? 'translate_no_ai' : 'translate_failed',
+        runId,
+      )
+      return
+    }
+
     void this.updatePersonalizationFromFinal(runId, textToPaste, promptResolution, appContext)
 
     this.textInsertionInFlight = true
@@ -2408,6 +2542,101 @@ export class RecorderOrchestrator {
       this.textInsertionInFlight = false
       this.textBeingInserted = ''
     }
+  }
+
+  /**
+   * 随便问：识别出来的是问题，不插字，交给 AI 回答后显示在答案卡上。
+   *
+   * 历史照常落一条，记的是**问题**：音频和识别文本仍然是用户自己的口述，关了历史的用户
+   * 这里同样不写。答案不进历史 —— 它不是用户说的话，字数统计、「重新识别」这些历史
+   * 功能对它都没有意义。
+   */
+  private async processAskResult(result: FinalResult, context: TimedOutProcessingContext) {
+    const runId = context.runId
+    const question = (result.asrText || '').trim()
+    const audioDur = context.audioDurationSec
+    const wallSec = context.wallTimeSec > 0 ? context.wallTimeSec : audioDur
+
+    addRuntimeEvent('info', 'recorder', 'Final result received', {
+      runId,
+      intent: 'ask',
+      hasText: Boolean(question),
+      asrMs: result.asrMs,
+      audioSec: audioDur,
+      textLen: question.length,
+    })
+
+    const written = await this.history.writeFinalRun({
+      runId,
+      result,
+      textToPaste: question,
+      hasText: Boolean(question),
+      audioDurationSec: audioDur,
+      wallTimeSec: wallSec,
+      mode: () => this.provider.mode,
+      isRunCurrent: () => this.isRunCurrent(runId),
+      metadata: () => this.buildHistoryMetadata(context.promptResolution, context.appContext),
+    })
+    if (written.aborted) return
+    if (!this.isRunCurrent(runId)) {
+      if (this.history.isRunCanceled(runId) && written.artifact) {
+        await this.history.discard(written.artifact)
+      }
+      return
+    }
+
+    if (!question) {
+      this.overlayService.showNoSpeech(this.micLevel.hasSilenceEvidence() ? 'silent' : 'no_text', {
+        reason: 'ask_empty_question',
+        mode: this.provider.mode,
+        audioSec: Number(audioDur.toFixed(1)),
+        runId,
+      })
+      this.finishRun(runId)
+      if (this.state === 'processing') this.resetToIdle({ keepOverlay: true })
+      return
+    }
+
+    // 只交选区，不交光标前后文：问题针对的是用户选中的那段，前后文只会让模型答偏。
+    // 选区只在开始录音时「带上选中的文字」开着才会读（见 startRecordingInner）。
+    const selection = context.appContext?.textContext
+    const selectedText = selection?.selectedText && !selection.selectionTruncated ? selection.selectedText : ''
+    const outcome = await askQuestion({
+      question,
+      selectedText,
+      settings: this.voiceActions.ask,
+      isCurrent: () => this.isRunCurrent(runId),
+    })
+    if (!outcome || !this.isRunCurrent(runId)) return
+    // 已超时、用户在宽限期里按了 Esc 说"不等了"：迟到的答案不再弹出来
+    if (runId === this.lateResultRunId && this.lateResultAbandoned) {
+      this.overlayService.hide()
+      this.finishRun(runId)
+      return
+    }
+
+    this.activeFallbackToken = runId
+    if (outcome.kind === 'answer') {
+      this.overlayService.showAnswer({
+        question,
+        answer: outcome.answer.text,
+        sources: outcome.answer.sources,
+        note: describeAskSearchNote(outcome.answer, this.voiceActions.ask.searchMode),
+        token: runId,
+      })
+    } else {
+      this.overlayService.showFailure({
+        title: t(outcome.kind === 'config_incomplete' ? 'recorder.askNoAiTitle' : 'recorder.askFailedTitle'),
+        detail: outcome.kind === 'config_incomplete'
+          ? t('recorder.askNoAiDetail')
+          : describeProviderError(outcome.error).message,
+        // 问题已经记进历史了，但历史里没有「重新提问」，所以不承诺能恢复
+        recovery: 'none',
+        token: runId,
+      })
+    }
+    this.finishRun(runId)
+    if (this.state === 'processing') this.resetToIdle({ keepOverlay: true })
   }
 
   private async updatePersonalizationFromFinal(

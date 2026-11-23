@@ -34,10 +34,26 @@ export const DEFAULTS: Record<string, unknown> = {
   // ⚠️ 改这里要同步 Rust：src-tauri/src/defaults.rs 和 storage/mod.rs 的种子。
   // defaults.rs 里有读本文件的对账测试，漏改 cargo test 会红。
   // 对账测试按「key: '值',」逐行解析，这几行保持单行字面量。
-  shortcutPTT: 'ControlRight',
+  // 2026-11 起「按住说话」下线：恒为空串（= 不监听），Rust 也不再读存量值、启动时把它清空。
+  // 别再给它默认键 —— 界面上已经没有地方改它了。
+  shortcutPTT: '',
   shortcutHandsFree: 'AltRight', // 免提模式。默认右 Alt 单键。也支持组合键格式如 'Control+Shift+S'
   // AI 整理总开关。留空 = 不注册，避免升级时意外占用用户已有的全局组合键。
   shortcutToggleAi: '',
+  // 语音翻译 / 随便问。只收组合键；设了就是开启，留空 = 关闭（没有单独的开关）。
+  shortcutTranslate: '',
+  shortcutAsk: '',
+
+  // ── 语音翻译 / 随便问（见 services/voiceActions）──
+  // 键名与 Rust commands/shortcuts.rs 的 VOICE_ACTION_SHORTCUTS 一致。
+  'translate.targetLanguage': 'en', // 取值见 voiceActions/languages.ts 的 TRANSLATE_LANGUAGE_CODES
+  'translate.prompt': '', // 空串 = 用内置提示词（跟随 ai.builtinPromptLanguage）
+  'translate.aiProfileId': '', // 空串 = 跟随当前启用的 AI 服务
+  'ask.prompt': '',
+  'ask.aiProfileId': '',
+  'ask.searchMode': 'auto', // 可选: 'auto'（模型自带优先，否则用搜索接口）| 'external' | 'off'
+  'ask.searchApiKey': '', // DeepSeek 搜索接口密钥；空串 = 回答用的是 DeepSeek 时借用它的密钥
+  'ask.useSelection': true, // 提问时把选中的文字交给 AI。只在用户主动按随便问时读取
 
   // ── 麦克风 ──
   selectedMic: '', // 设备 ID，空字符串 = 系统默认
@@ -201,11 +217,10 @@ export const DEFAULTS: Record<string, unknown> = {
 }
 
 /**
- * macOS 上覆盖的默认值。MacBook 内置键盘没有右 Ctrl，所以按住说话改成右 ⌥、免提改成右 ⌘。
+ * macOS 上覆盖的默认值：免提改成右 ⌘（右 Alt 在 Mac 上是 ⌥，常用来打特殊字符）。
  * ⚠ 同样要和 Rust 对账（defaults.rs 的宏），对账测试逐行解析，保持单行字面量。
  */
 export const MAC_DEFAULT_OVERRIDES: Record<string, unknown> = {
-  shortcutPTT: 'AltRight',
   shortcutHandsFree: 'MetaRight',
 }
 

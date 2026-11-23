@@ -571,9 +571,16 @@ fn main() {
     // Clean up expired log files on startup
     cleanup_expired_logs(&storage);
 
-    // Read PTT setting before moving storage into managed state
+    // 「按住说话」已下线：存量值一律清掉（老用户默认存着右 Ctrl），运行时也不再读它，
+    // 见 defaults::SHORTCUT_PTT。清空是为了让诊断报告、配置导出里看到的和实际行为一致。
     let ptt_setting_val = storage.get("shortcutPTT", None);
-    let ptt_str = ptt_setting_val.as_str().unwrap_or(defaults::SHORTCUT_PTT).to_string();
+    if ptt_setting_val.as_str().is_some_and(|s| !s.is_empty()) {
+        match storage.set("shortcutPTT", &serde_json::json!("")) {
+            Ok(()) => log::info!("Push-to-talk retired: cleared stored shortcut {:?}", ptt_setting_val),
+            Err(e) => log::warn!("Push-to-talk retired: could not clear stored shortcut: {}", e),
+        }
+    }
+    let ptt_str = defaults::SHORTCUT_PTT.to_string();
     let hf_setting_val = storage.get("shortcutHandsFree", None);
     let hf_str = hf_setting_val.as_str().unwrap_or(defaults::SHORTCUT_HANDS_FREE).to_string();
     let ai_toggle_setting_val = storage.get("shortcutToggleAi", None);
@@ -911,6 +918,9 @@ fn main() {
             commands::diagnostics::open_log_folder,
             // Providers (cloud ASR / AI)
             providers::registry::cloud_polish,
+            providers::registry::ai_ask,
+            providers::registry::ai_builtin_search_support,
+            providers::registry::test_ask_search,
             providers::registry::cloud_transcribe,
             providers::registry::cloud_transcribe_raw,
             providers::registry::test_ai_connection,

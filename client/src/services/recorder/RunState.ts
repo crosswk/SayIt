@@ -2,6 +2,7 @@ import type { AiConfigSnapshot } from '../transcription/aiPolicy'
 import type { ActiveAppContext } from '../../types/appContext'
 import type { PromptResolution } from '../personalization/types'
 import type { ProbeResult } from './PasteService'
+import type { VoiceIntent } from '../voiceActions/settings'
 
 /**
  * 一次录音的运行期数据，从 RecorderOrchestrator 的散字段收拢而来（模块 6 第二步）。
@@ -31,6 +32,11 @@ export class RunState {
    * 改一下门槛，这一条的原因就跟着变了 —— 事后没法解释历史记录。
    */
   currentAiConfig: AiConfigSnapshot | undefined
+  /**
+   * 这次录音要做什么：口述输入 / 语音翻译 / 随便问。开始录音时由触发它的快捷键决定，
+   * 整次录音不变（录到一半改设置不影响这一次）。
+   */
+  intent: VoiceIntent = 'dictate'
   currentOperationId: string | undefined
   currentActiveAppContext: ActiveAppContext | null = null
   currentPromptResolution: PromptResolution | null = null

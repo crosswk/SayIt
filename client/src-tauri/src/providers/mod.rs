@@ -7,6 +7,7 @@ pub mod http_client;
 pub mod capabilities;
 pub mod ai_openai_compat;
 pub mod ai_ollama;
+pub mod ai_ask;
 pub mod asr_doubao;
 pub mod asr_doubao_stream;
 pub mod asr_doubao_realtime;
