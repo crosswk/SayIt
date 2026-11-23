@@ -326,7 +326,8 @@ export default {
           esc: 'Press Esc while recording or processing to cancel. Nothing is inserted, and the recording isn’t kept.',
           items: [
             ['Hands-free', 'Best for talking at length: press once to start, press again to stop. Nothing to hold down.', 'Right Alt'],
-            ['Push to talk', 'Best for short bursts: recording starts once the whole combination is held down, and stops as soon as you release any key.', 'Ctrl + Win'],
+            ['Voice translate', 'Press once to start, press again to stop, and the translation is typed at your cursor.', 'Alt + Q'],
+            ['Ask anything', 'Press once to ask, press again to stop, and the answer appears in a card at the bottom of the screen.', 'Alt + A'],
           ],
         },
         mic: { title: 'Microphone', label: 'Choose a microphone', value: 'System default (Microphone Array)', options: ['System default (Microphone Array)', 'Blackwire 5220', 'Microphone Array'], test: 'Test microphone', testing: 'Testing…' },
@@ -354,7 +355,7 @@ export default {
         durationTitle: 'Show recording time',
         durationDesc: 'Off shows the waveform only',
         streamTitle: 'Live captions',
-        streamDesc: 'Show recognized words in the overlay while you talk (Doubao and Qwen realtime ASR)',
+        streamDesc: 'Show recognized words in the overlay while you talk (Doubao, Qwen, OpenAI and Gemini realtime ASR)',
         preview: 'Overlay preview',
         previewText: 'Let’s meet with the team at three and walk through the new release plan',
       },
@@ -390,7 +391,7 @@ export default {
           q: 'The transcript wasn’t inserted after recognition finished',
           items: [
             ['Click the text box first ', 'so the cursor sits inside it.'],
-            ['Don’t switch windows while holding the shortcut: ', 'the cursor must still be in the text box when you release it.'],
+            ['Don’t switch windows while talking: ', 'the cursor must still be in the text box when you finish.'],
             ['Nothing works anywhere: ', 'security software is usually the cause. Add SayIt to its trusted list.'],
             ['Games and installers fail: ', 'they run as administrator, so run SayIt as administrator too.'],
             ['Only one app fails: ', 'SayIt can’t recognize its text box yet. Use the copy button on the card to grab the text.'],
@@ -464,7 +465,7 @@ export default {
       },
       {
         q: 'How does the shortcut work?',
-        a: 'Press Right Alt once to start and again to finish, and the cleaned-up text is typed for you. You can also set a separate hold-to-talk key, and either one can be another key or a mouse side button. On a Mac the defaults are Right ⌘ to start and finish, and Right ⌥ to hold and talk.',
+        a: 'Press Right Alt once to start and again to finish, and the cleaned-up text is typed for you. The shortcut can be another key or a mouse side button. Voice translate and Ask anything each work once you give them a key combination. On a Mac the default is Right ⌘ to start and finish.',
       },
       {
         q: 'Do I need a powerful PC?',

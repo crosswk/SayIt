@@ -101,7 +101,7 @@ SayIt 后端部署使用的是 Qwen3-ASR，效果仅次于豆包，开源模型�
 
 [下载最新版](https://github.com/crosswk/SayIt/releases/latest)：Windows 10 / 11 下载 `SayIt_<版本>_x64-setup.exe`；Mac 下载 `SayIt_<版本>_arm64.dmg`，需要 Apple 芯片和 macOS 14 及以上。
 
-安装后默认连接我提供的公共服务器，开箱即用。服务器端的 AI 使用的是 Groq 提供的 OpenAI 120B 模型，会有免费的请求限制。
+安装后默认连接我提供的公共服务器，开箱即用。公共服务器只做语音识别，AI 整理从 2026 年 11 月 30 日起不再提供；需要 AI 整理的，在「AI 供应商」里添加自己的模型（比如 DeepSeek），并打开同一页的「本地执行 AI 整理」。
 
 也可以先通过 [网页版 Demo](https://sayitapp.site) 快速体验 ASR 的识别速度和效果，无需安装任何东西。
 
@@ -113,7 +113,7 @@ Mac 版有签名，但没有经过苹果公证，第一次打开要手动放行�
 2. 在「应用程序」里打开 SayIt，系统提示无法验证开发者时点「完成」。然后打开「系统设置 → 隐私与安全性」，拉到最下面，在 SayIt 那一条旁边点「仍要打开」。
 3. 按提示允许麦克风，再到「系统设置 → 隐私与安全性 → 辅助功能」里打开 SayIt。快捷键、自动粘贴、读取光标前后的文字都要这个权限。
 
-Mac 上默认按一下右 ⌘ 开始、再按一下结束，按住右 ⌥ 说话。以后的更新在应用内完成。
+Mac 上默认按一下右 ⌘ 开始、再按一下结束。以后的更新在应用内完成。
 
 ## 使用模式
 
@@ -176,10 +176,12 @@ cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000
 - **全局语音输入** — 在任何应用中按下快捷键即可口述，文字自动插入光标位置
 - **AI 智能润色** — 口语自动转书面语，去口癖、纠错、分段，Prompt 完全可自定义
 - **上下文感知**（默认关闭）— 开启后会读取光标附近的文本，让新说的话在语气、术语和格式上与前后文衔接；先选中一段文字再开口，说出的话会被当成对它的编辑指令（翻译、精简、改写或提问），处理完直接替换选中内容。选区编辑默认沿用当前 AI 模型，也可在「AI 整理 → 上下文感知」中选择单独的已保存模型。密码框会自动跳过
-- **多种语音识别** — 云端可选豆包、千问、OpenAI、Gemini、OpenRouter、小米 MiMo、DeepSeek、Groq Whisper，也可以填自己的地址接入任意 OpenAI 兼容服务；本地离线识别有 7 档 GGUF 模型（Parakeet Unified EN、SenseVoice、Fun-ASR Nano、Nemotron 3.5、Qwen3-ASR 三档），可用显卡加速
+- **多种语音识别** — 云端可选豆包、千问、OpenAI、Gemini、xAI Grok、OpenRouter、小米 MiMo、DeepSeek、Groq Whisper，也可以填自己的地址接入任意 OpenAI 兼容服务；本地离线识别有 7 档 GGUF 模型（Parakeet Unified EN、SenseVoice、Fun-ASR Nano、Nemotron 3.5、Qwen3-ASR 三档），可用显卡加速
 - **中英双语界面** — 默认跟随系统语言，也可以在设置里随时切换
 - **热词增强** — 自定义专业术语词表；豆包、千问、服务器模式会参与 ASR 识别偏置，本地模型和不支持热词的云端服务则通过 AI 整理/文本处理做后处理纠错，热词页会说明当前配置属于哪种
-- **悬浮窗反馈** — 录音状态、波形动画、按住时长实时可见；豆包、千问实时 ASR 下还能边说边出字幕
+- **语音翻译** — 给它设一个快捷键，说完直接把译文写进光标处，目标语言可选五十多种
+- **随便问** — 用语音提问，答案显示在屏幕下方的卡片里，不写进文档；DeepSeek 等模型可以联网搜索
+- **悬浮窗反馈** — 录音状态、波形动画、录音时长实时可见；豆包、千问、OpenAI、Gemini 的实时识别下还能边说边出字幕
 - **历史记录** — 所有转录结果本地保存，支持搜索和收藏
 - **隐私可控** — 支持完全自部署，数据流向透明
 
@@ -215,7 +217,7 @@ SayIt/
 | 桌面客户端　　 | Tauri v2、React、TypeScript、Tailwind CSS　　　　　　|
 | 客户端系统集成 | Rust（全局键盘钩子、剪贴板、SQLite）　　　　　　　　 |
 | 后端服务　　　 | Python、FastAPI、WebSocket　　　　　　　　　　　　　 |
-| 语音识别　　　 | Qwen3-ASR + vLLM / 豆包 / 千问 / OpenAI / Gemini / OpenRouter / MiMo / DeepSeek / Groq / ggml (GGUF) |
+| 语音识别　　　 | Qwen3-ASR + vLLM / 豆包 / 千问 / OpenAI / Gemini / xAI Grok / OpenRouter / MiMo / DeepSeek / Groq / ggml (GGUF) |
 | AI 润色　　　　| DeepSeek / 通义千问 / 豆包 / 智谱 GLM / 小米 MiMo / Groq / Ollama / OpenAI 兼容 |
 | 部署　　　　　 | Docker Compose、NVIDIA Container Toolkit　　　　　　 |
 | 开发　　　　　 | 整个项目使用 Claude Opus 开发　　　　　　　　　　　　|

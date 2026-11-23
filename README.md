@@ -34,6 +34,8 @@ Typing is often the slowest part of working with AI. SayIt turns speech into tex
 - **Flexible speech recognition** — use a cloud ASR provider, run a local GGUF model on your own GPU, connect to the public trial server, or host your own backend.
 - **English and Chinese interface** — the UI follows your system language and can be switched at any time.
 - **Hotwords and per-app rules** — improve names and technical terms, then change cleanup behavior automatically for different apps.
+- **Voice translate** — give it a shortcut, speak, and the translation is typed at your cursor. More than fifty target languages.
+- **Ask anything** — ask a question by voice and read the answer in a card at the bottom of the screen, without touching your document. Models such as DeepSeek can search the web.
 - **Overlay feedback** — a small waveform overlay shows recording state and elapsed time, with optional live captions while you speak.
 - **Transparent data flow** — the app shows which mode is active and where audio and text are processed.
 - **Local history and diagnostics** — review recordings, re-transcribe them, and collect useful troubleshooting details without guesswork.
@@ -46,7 +48,7 @@ Typing is often the slowest part of working with AI. SayIt turns speech into tex
 | **Cloud API mode** | The best balance for personal use | Your PC talks directly to the ASR and AI providers you configure. No SayIt server is involved. |
 | **Server mode** | Teams and managed deployments | Audio is processed by a SayIt backend you control—or by the public trial server for a quick start. |
 
-Local recognition ships seven GGUF models, with GPU acceleration when available: Parakeet Unified EN (fastest and most accurate for English), SenseVoice Small, Fun-ASR Nano, Nemotron 3.5 ASR (32 languages), and three Qwen3-ASR sizes. Cloud recognition supports Doubao, Qwen, OpenAI, Gemini, OpenRouter, Xiaomi MiMo, DeepSeek, and Groq Whisper, plus any OpenAI-compatible service at an address you supply; AI cleanup works with DeepSeek, Qwen, Doubao, Zhipu GLM, MiMo, Groq, Ollama, and any OpenAI-compatible endpoint.
+Local recognition ships seven GGUF models, with GPU acceleration when available: Parakeet Unified EN (fastest and most accurate for English), SenseVoice Small, Fun-ASR Nano, Nemotron 3.5 ASR (32 languages), and three Qwen3-ASR sizes. Cloud recognition supports Doubao, Qwen, OpenAI, Gemini, xAI Grok, OpenRouter, Xiaomi MiMo, DeepSeek, and Groq Whisper, plus any OpenAI-compatible service at an address you supply; AI cleanup works with DeepSeek, Qwen, Doubao, Zhipu GLM, MiMo, Groq, Ollama, and any OpenAI-compatible endpoint.
 
 ## A closer look
 
@@ -92,7 +94,7 @@ Local recognition ships seven GGUF models, with GPU acceleration when available:
 
 1. Download the latest release: `SayIt_<version>_x64-setup.exe` for Windows 10 and 11, or `SayIt_<version>_arm64.dmg` for Macs with Apple silicon on macOS 14 or later.
 2. Open SayIt and choose a voice engine. The default public server is enough for a quick trial.
-3. Press the configured shortcut in any app and speak. By default you press once to start and again to finish; hold-to-talk is available too, under a separate shortcut.
+3. Press the configured shortcut in any app and speak. You press once to start and again to finish; the default is Right Alt.
 
 For regular use, choose Local mode or add your own cloud provider keys from the in-app settings. The provider console links are available beside each key field.
 
@@ -104,7 +106,7 @@ The Mac app is signed but not notarized by Apple, so macOS asks you to confirm i
 2. Open SayIt from Applications. When macOS says it can't verify the developer, click Done, then go to System Settings → Privacy & Security, scroll down, and click Open Anyway next to the message about SayIt.
 3. Allow the microphone when asked, and turn SayIt on under System Settings → Privacy & Security → Accessibility. Shortcuts, pasting and reading the text around the cursor all need Accessibility.
 
-The default shortcuts on a Mac are Right ⌘ for hands-free (press to start, press again to finish) and Right ⌥ for hold-to-talk. Later updates install from inside the app.
+On a Mac the default shortcut is Right ⌘: press to start, press again to finish. Later updates install from inside the app.
 
 ## Self-hosting
 

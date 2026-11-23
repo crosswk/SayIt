@@ -55,7 +55,7 @@ Yes. Text lands at the cursor, so terminals, IDEs, browsers and chat apps all wo
 
 ### How does the shortcut work?
 
-Press Right Alt once to start and again to finish, and the cleaned-up text is typed for you. You can also set a separate hold-to-talk key, and either one can be another key or a mouse side button. On a Mac the defaults are Right ⌘ to start and finish, and Right ⌥ to hold and talk.
+Press Right Alt once to start and again to finish, and the cleaned-up text is typed for you. The shortcut can be another key or a mouse side button. Voice translate and Ask anything each work once you give them a key combination. On a Mac the default is Right ⌘ to start and finish.
 
 ### Do I need a powerful PC?
 

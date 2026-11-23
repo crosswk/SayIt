@@ -31,7 +31,14 @@ export const RELEASE_HIGHLIGHTS: ReleaseHighlights = {
       t('release.0.2.6.1'),
       t('release.0.2.6.2'),
       t('release.0.2.6.3'),
+      // 7 是能力类（OpenCode Go / Ollama），按「先能力、再变更、再修复」排在前面
+      t('release.0.2.6.7'),
       t('release.0.2.6.4'),
+      t('release.0.2.6.5'),
+      t('release.0.2.6.6'),
+      t('release.0.2.6.8'),
+      t('release.0.2.6.9'),
+      t('release.0.2.6.10'),
     ]
   },
 }
