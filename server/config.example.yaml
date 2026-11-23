@@ -43,6 +43,9 @@ asr:
   max_concurrency: 1
   batch_max_size: 32
   batch_wait_ms: 60
+  # Drops output the audio cannot have produced (a full sentence from a key click over room
+  # noise). enforce = drop it, log = only write a "halluc guard" log line, off = disabled.
+  halluc_guard: "enforce"
   firered:                           # Only used when engine = "firered"
     model_dir: "pretrained_models"
 

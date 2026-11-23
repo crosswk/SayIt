@@ -72,6 +72,7 @@ class ASRConfig:
     batch_wait_ms: int = 60
     firered_model_dir: str = str(_PROJECT_ROOT / "pretrained_models")
     firered_use_int8: bool = True
+    halluc_guard: str = "enforce"   # off / log / enforce, see halluc_guard.py
 
 
 @dataclass(slots=True)
@@ -343,6 +344,11 @@ def _resolve_path(raw: str | None, fallback: Path) -> str:
     if not value.is_absolute():
         value = (_PROJECT_ROOT / value).resolve()
     return str(value)
+
+
+def _normalize_mode3(raw: Any, default: str) -> str:
+    mode = str(raw or "").strip().lower()
+    return mode if mode in ("off", "log", "enforce") else default
 
 
 def _normalize_asr_language(raw: Any, default: str) -> str:
@@ -841,6 +847,7 @@ def load_config(config_path: str | None = None, env_path: str | None = None) -> 
                 _PROJECT_ROOT / "pretrained_models",
             ),
             firered_use_int8=bool(_pick(asr_raw, "firered", "use_int8", default=defaults.asr.firered_use_int8)),
+            halluc_guard=_normalize_mode3(asr_raw.get("halluc_guard"), defaults.asr.halluc_guard),
         ),
         vad=VADConfig(
             model=str(vad_raw.get("model") or defaults.vad.model),

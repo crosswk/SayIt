@@ -34,6 +34,7 @@ from .bodylimit import BodyLimitMiddleware, build_body_limit_rules
 from .feedback_input import FeedbackInputError, parse_feedback
 from .ratelimit import KeyedWindowLimiter
 from .errors import public_error_message
+from . import halluc_guard
 
 cfg = load_config()
 configure_logging(cfg.logging.level, cfg.logging.file, cfg.logging.retention_days, cfg.telemetry.node_id)
@@ -190,7 +191,10 @@ app.add_middleware(
 app.state.ip_resolver = guard.resolver
 
 
-_NOISE_RE = re.compile(r"^[\s銆傦紝銆侊紵锛?,?!\u3000]*$")
+# Full-width punctuation is written as escapes: these used to be literal characters, got
+# re-encoded once, and both patterns silently stopped matching.
+_CJK_PUNCT = r"\u3002\uff0c\u3001\uff1f\uff01\uff1b\uff1a"
+_NOISE_RE = re.compile(rf"^[\s{_CJK_PUNCT},.?!;:\u3000]*$")
 
 # ── Voice-score: lightweight frequency-domain speech detector ────────
 # Human speech (even whispered) concentrates energy in 85-3400 Hz.
@@ -246,7 +250,7 @@ def _is_hotword_hallucination(text: str, context: str, audio_peak: float = 1.0,
     if not context or not text:
         return False
     words = set(w.lower() for w in context.split())
-    cleaned = re.sub(r"[\s銆傦紝銆侊紵锛?,?!\u3000。]+", " ", text).strip()
+    cleaned = re.sub(rf"[\s{_CJK_PUNCT},?!;:\u3000]+", " ", text).strip()
     tokens = cleaned.split()
     if not tokens:
         return False
@@ -267,6 +271,21 @@ def _is_hotword_hallucination(text: str, context: str, audio_peak: float = 1.0,
     if len(cleaned) <= 6 and all(t.lower() in words for t in tokens):
         return True
     return False
+
+
+def _vad_speech_ms(audio: np.ndarray) -> int | None:
+    """Milliseconds of speech VAD finds in `audio`; None when VAD is unavailable or fails."""
+    vad = getattr(asr_engine, "_vad", None) if asr_engine else None
+    if vad is None:
+        return None
+    import torch
+    try:
+        res = vad.generate(input=torch.tensor(audio, dtype=torch.float32), cache={}, is_final=True)
+        segs = res[0].get("value", []) if res else []
+        return int(sum(end - start for start, end in segs))
+    except Exception as e:
+        logger.warning("VAD check failed: %s", e)
+        return None
 
 
 def _clean_text(text: str) -> str:
@@ -476,22 +495,15 @@ async def _run_asr_llm(
     audio_peak = float(np.max(np.abs(audio)))
     audio_rms = float(np.sqrt(np.mean(audio**2)))
     vs = _voice_score(audio)
+    # VAD runs whether or not the client sent hotwords: with none sent the engine falls back
+    # to its own default list, and that list is just as easy to recite over a key click.
+    vad_ms = _vad_speech_ms(audio) if duration < halluc_guard.MAX_AUDIO_SEC else None
     strip_context = False
     if vs < _VS_THRESHOLD or (audio_peak < 0.02 and audio_rms < 0.002):
         strip_context = True
-    elif context and duration < 10.0 and asr_engine and asr_engine._vad is not None:
-        # For short audio with hotwords: use VAD to detect if there's actual speech.
-        # This catches non-speech noise (keyboard, clicks) that has high energy.
-        import torch
-        try:
-            vad_res = asr_engine._vad.generate(
-                input=torch.tensor(audio, dtype=torch.float32), cache={}, is_final=True)
-            vad_segs = vad_res[0].get("value", []) if vad_res else []
-            logger.debug("VAD check: segs=%d, duration=%.1f", len(vad_segs), duration)
-            if not vad_segs:
-                strip_context = True
-        except Exception as e:
-            logger.warning("VAD check failed: %s", e)
+    elif vad_ms == 0:
+        # Catches non-speech noise (keyboard, clicks) that has high energy.
+        strip_context = True
     if strip_context and (context is None or context):
         logger.info("Stripping hotword context: voice_score=%.3f peak=%.4f rms=%.5f", vs, audio_peak, audio_rms)
         context = ""
@@ -507,6 +519,21 @@ async def _run_asr_llm(
     # VAD detected no speech but ASR produced short text → noise hallucination
     if asr_text and strip_context and len(asr_text) <= 10:
         asr_text = ""
+    # The rules above only catch short phantom output. A full fabricated sentence is caught by
+    # checking that the audio holds enough speech to have produced that much text.
+    hg_mode = cfg.asr.halluc_guard
+    if asr_text and vad_ms is not None and hg_mode != halluc_guard.MODE_OFF:
+        verdict = halluc_guard.judge(audio, asr_text, vad_ms, _vad_speech_ms)
+        if verdict.drop:
+            # Numbers only: the text itself is never logged.
+            logger.info(
+                "halluc guard mode=%s reason=%s dur=%.1f units=%d vad_ms=%d gain_vad_ms=%s voiced_ms=%s",
+                hg_mode, verdict.reason, duration, verdict.units, verdict.vad_ms,
+                verdict.gain_vad_ms, verdict.voiced_ms,
+            )
+            asr_debug["halluc_guard"] = verdict.reason
+            if hg_mode == halluc_guard.MODE_ENFORCE:
+                asr_text = ""
 
     if cfg.logging.slow_asr_ms and asr_ms >= cfg.logging.slow_asr_ms:
         logger.warning("Slow ASR detected duration_sec=%.2f asr_ms=%d", duration, asr_ms)
