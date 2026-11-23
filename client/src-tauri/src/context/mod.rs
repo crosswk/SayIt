@@ -19,7 +19,8 @@ use tauri::Manager;
 use windows::Win32::Foundation::HWND;
 #[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HMONITOR, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST,
 };
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -306,27 +307,50 @@ pub fn capture_foreground_monitor() -> Option<MonitorBounds> {
         }
 
         let monitor = MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST);
-        let mut info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return None;
-        }
-
-        let work = info.rcWork;
-        if work.right <= work.left || work.bottom <= work.top {
-            return None;
-        }
-
-        Some(MonitorBounds {
-            left: work.left,
-            top: work.top,
-            right: work.right,
-            bottom: work.bottom,
-            source: "foreground_window".to_string(),
-        })
+        monitor_work_bounds(monitor, "foreground_window")
     }
+}
+
+/// 鼠标指针所在显示器的物理工作区。
+///
+/// 悬浮窗跟着指针走（用户 2026-11-18 的要求）：多屏时人看哪块屏、指针就在哪块，
+/// 前台窗口反而可能留在另一块屏上。取不到指针时调用方退回前台窗口。
+#[cfg(windows)]
+pub fn capture_cursor_monitor() -> Option<MonitorBounds> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    unsafe {
+        let mut point = POINT::default();
+        if GetCursorPos(&mut point).is_err() {
+            return None;
+        }
+        let monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
+        monitor_work_bounds(monitor, "cursor")
+    }
+}
+
+#[cfg(windows)]
+unsafe fn monitor_work_bounds(monitor: HMONITOR, source: &str) -> Option<MonitorBounds> {
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+        return None;
+    }
+
+    let work = info.rcWork;
+    if work.right <= work.left || work.bottom <= work.top {
+        return None;
+    }
+
+    Some(MonitorBounds {
+        left: work.left,
+        top: work.top,
+        right: work.right,
+        bottom: work.bottom,
+        source: source.to_string(),
+    })
 }
 
 /// Use Windows UI Automation to query the focused element's properties.
@@ -754,6 +778,12 @@ pub fn capture_foreground_monitor() -> Option<MonitorBounds> {
     macos::capture_foreground_monitor()
 }
 
+/// mac 暂未实现跟随指针，悬浮窗仍按前台窗口所在显示器放置。
+#[cfg(not(windows))]
+pub fn capture_cursor_monitor() -> Option<MonitorBounds> {
+    None
+}
+
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn capture_context(reason: &str) -> AppContext {
     capture_context_with_text(reason, false)
@@ -815,7 +845,7 @@ pub(crate) fn get_process_name(pid: u32) -> String {
 }
 
 #[cfg(windows)]
-fn get_process_path(pid: u32) -> String {
+pub(crate) fn get_process_path(pid: u32) -> String {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
     unsafe {

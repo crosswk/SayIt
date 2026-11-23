@@ -312,7 +312,8 @@ export async function checkForUpdateNow(): Promise<VersionInfo | null> {
 }
 
 /**
- * 用户主动安装：应用会立刻关闭、静默安装、再自动打开。
+ * 用户主动安装：Windows 上等安装进度窗口出现后应用才关闭（最多 30 秒），这期间保持 installing；
+ * 装完自动打开。mac 上立刻关闭。
  * 调用方通过卡片或关于页的安装按钮说明重启行为；录音和转写期间禁止安装。
  */
 export async function installPendingUpdate(): Promise<void> {

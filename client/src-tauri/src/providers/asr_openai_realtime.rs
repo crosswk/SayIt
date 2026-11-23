@@ -16,11 +16,13 @@
 //   5. 收 conversation.item.input_audio_transcription.delta（增量）
 //      与 .completed（该轮最终文本）
 //
-// ── 未经真实接口验证的三处（没有 OpenAI key，只能照文档实现）──
+// ── 采样率：发送前 16k → 24k ──
+// 接口参考写明 "Only a 24kHz sample rate is supported"，rate 只能是 24000。0.2.5 曾按
+// 「格式字段是显式声明的，16k 应当被接受」直接发 16k，结果用户反馈实时字幕一个字都不出
+// （issue #96）。我们整条链路是 16k（services/audio.ts），所以在 openai_live_send 里重采样。
+//
+// ── 未经真实接口验证的两处（没有 OpenAI key，只能照文档实现）──
 // 用 `dev-scripts/probe_openai_live_transcribe.py` 打一次真实接口即可逐条确认：
-//   A. **采样率 16000**。官方示例一律写 24000，但格式字段是 `{type, rate}` 这种
-//      显式声明形态，按说 16k 应当被接受（我们整条链路都是 16k，见 services/audio.ts）。
-//      若服务端拒绝，只能在这里对 PCM 做 16k→24k 重采样。
 //   B. **就绪事件名**。这里同时接受 `session.updated` 与 `transcription_session.updated`
 //      （历史上用过后者），任一到达即算就绪。
 //   C. **keywords 字段的位置**。文档把它放在 `audio.input.transcription.keywords`，
@@ -48,8 +50,77 @@ const SCOPE: &str = "openai/live";
 /// 两者不通用（见 asr_groq.rs 的 endpoint_for，关掉实时字幕时走的是那条路）。
 const DEFAULT_MODEL: &str = "gpt-live-transcribe";
 
-/// 采样率。整条链路都是 16k 单声道 s16le（services/audio.ts 的 TARGET_SAMPLE_RATE）。
-const SAMPLE_RATE: u32 = 16000;
+/// 发给 OpenAI 的采样率：Realtime 只收 24k 单声道 s16le。
+const SAMPLE_RATE: u32 = 24000;
+
+/// 16k → 24k 线性插值，**跨分片保留状态**。
+///
+/// 前端每 100ms 左右送一片音频。各片单独插值的话，每个接缝处输出样本数会差一个，
+/// 几分钟下来就是可闻的变速和咔哒声，所以输出时钟在整个会话里连续走。
+/// 线性插值对语音识别足够：16k 里本来就没有 8kHz 以上的内容，24k 只是换一个容器。
+#[derive(Default)]
+struct Upsampler16To24 {
+    /// 还会用到的输入样本，tail[0] 的全局下标是 base
+    tail: Vec<i16>,
+    base: u64,
+    /// 下一个输出样本的下标（24k 时钟）。第 k 个输出对应输入位置 k*2/3。
+    next_out: u64,
+}
+
+impl Upsampler16To24 {
+    fn push(&mut self, input: &[i16]) -> Vec<i16> {
+        self.tail.extend_from_slice(input);
+        let mut out = Vec::with_capacity(input.len() * 3 / 2 + 2);
+        loop {
+            let num = self.next_out * 2;
+            let rel = (num / 3 - self.base) as usize;
+            let frac = (num % 3) as i32;
+            let sample = if frac == 0 {
+                match self.tail.get(rel) {
+                    Some(&s) => s,
+                    None => break,
+                }
+            } else {
+                match (self.tail.get(rel), self.tail.get(rel + 1)) {
+                    (Some(&a), Some(&b)) => (a as i32 + (b as i32 - a as i32) * frac / 3) as i16,
+                    _ => break,
+                }
+            };
+            out.push(sample);
+            self.next_out += 1;
+        }
+        // 下一个输出要用的第一个输入样本之前的都用不到了
+        let drop = ((self.next_out * 2 / 3) - self.base) as usize;
+        let drop = drop.min(self.tail.len());
+        self.tail.drain(..drop);
+        self.base += drop as u64;
+        out
+    }
+}
+
+static UPSAMPLER: once_cell::sync::Lazy<std::sync::Mutex<Upsampler16To24>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Upsampler16To24::default()));
+
+/// 前端送来的 16k base64 PCM → 24k base64 PCM。
+fn pcm16k_b64_to_24k_b64(pcm_b64: &str) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(pcm_b64)
+        .map_err(|e| format!("invalid audio chunk: {}", e))?;
+    let samples: Vec<i16> = bytes
+        .chunks_exact(2)
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect();
+    let out = UPSAMPLER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .push(&samples);
+    let mut out_bytes = Vec::with_capacity(out.len() * 2);
+    for s in out {
+        out_bytes.extend_from_slice(&s.to_le_bytes());
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(out_bytes))
+}
 
 /// 延迟档位：minimal | low | medium | high | xhigh。
 ///
@@ -503,6 +574,8 @@ async fn run_reader(
 
 async fn cleanup() {
     ACTIVE.store(false, Ordering::SeqCst);
+    // 新会话从 0 开始数样本，否则上一次剩下的尾巴会拼到下一次录音的开头
+    *UPSAMPLER.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Upsampler16To24::default();
     if let Some(mut sink) = SINK.lock().await.take() {
         let _ = sink.close().await;
     }
@@ -521,8 +594,9 @@ pub async fn openai_live_send(pcm_b64: String) -> Result<(), String> {
             "Session is not open".to_string(),
         ));
     }
-    // 音频本来就是 base64 过来的，这个协议也要 base64 塞 JSON，所以不解码 ——
-    // 解一遍再编一遍纯属浪费（与千问 realtime 那份同理）。
+    // 必须解码重采样：前端是 16k，OpenAI 只收 24k（见文件头）。
+    let pcm_b64 = pcm16k_b64_to_24k_b64(&pcm_b64)
+        .map_err(|e| diag::fail(SCOPE, "resample", e))?;
     let payload = serde_json::to_string(&append_audio_payload(&pcm_b64)).unwrap();
     let mut sink = SINK.lock().await;
     let s = sink.as_mut().ok_or_else(|| {
@@ -667,6 +741,27 @@ mod tests {
         }
     }
 
+    /// 分片喂和一次性喂必须得到同一串输出：接缝处多一个或少一个样本，几分钟下来就会变速。
+    #[test]
+    fn upsampler_is_continuous_across_chunks() {
+        let input: Vec<i16> = (0..1600).map(|i| ((i * 37) % 2000 - 1000) as i16).collect();
+        let whole = Upsampler16To24::default().push(&input);
+
+        let mut chunked = Upsampler16To24::default();
+        let mut pieces = Vec::new();
+        for chunk in input.chunks(127) {
+            pieces.extend(chunked.push(chunk));
+        }
+        assert_eq!(pieces, whole);
+        // 100ms 的 16k（1600 个样本）≈ 100ms 的 24k（2400 个，末尾最多差一个在等下一片）
+        assert!((2398..=2400).contains(&whole.len()), "got {}", whole.len());
+        // 整数位置原样保留，中间位置在两邻点之间
+        assert_eq!(whole[0], input[0]);
+        assert_eq!(whole[3], input[2]);
+        let (a, b) = (input[0].min(input[1]), input[0].max(input[1]));
+        assert!(whole[1] >= a && whole[1] <= b);
+    }
+
     #[test]
     fn model_falls_back_to_the_live_default() {
         assert_eq!(resolve_model(&config(serde_json::json!({}))), DEFAULT_MODEL);
@@ -689,7 +784,8 @@ mod tests {
         assert_eq!(payload["session"]["type"], "transcription");
         let input = &payload["session"]["audio"]["input"];
         assert_eq!(input["format"]["type"], "audio/pcm");
-        assert_eq!(input["format"]["rate"], SAMPLE_RATE);
+        // 接口只收 24000（issue #96：发 16000 时一个字都不出）
+        assert_eq!(input["format"]["rate"], 24000);
         assert_eq!(input["transcription"]["model"], DEFAULT_MODEL);
         assert_eq!(input["transcription"]["delay"], DELAY);
         assert!(input["turn_detection"].is_null());

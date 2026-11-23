@@ -644,10 +644,18 @@ fn prune_stale_packages(dir: &std::path::Path, keep: &str) {
 /// relaunch=false 会装完就结束、不碰应用。目前两个调用方都传 true（用户点「立即安装」
 /// 和退出兜底安装都要让用户看到新版本的关于页），参数保留是因为"装完别拉起来"这个选项
 /// 一旦需要就必须立刻可用 —— 关机前退出那种场景下拉起应用是明确的错误行为。
+///
+/// show_progress=true 用 Tauri 安装程序的被动模式 `/P /UPDATE`：不问任何问题，只显示一个
+/// 带进度条的安装窗口，装完自动关闭。用户点了「立即更新」之后 SayIt 会先退出，静默安装
+/// 期间屏幕上什么都没有，十几秒里用户以为卡死了（2026-11-18 用户反馈）。
+/// `/UPDATE` 必须一起带：被动模式会走「已安装旧版」那一页的离开逻辑，那页的单选框没创建，
+/// 读出来是「卸载后重装」；`/UPDATE` 让它直接覆盖安装，这也是 Tauri 自家 updater 的用法。
+/// 退出路径的兜底安装仍传 false（`/S`）：用户是要关掉 SayIt，不该弹窗。
 #[cfg(target_os = "windows")]
-fn spawn_installer(installer_path: &str, relaunch: bool) -> Result<(), String> {
+fn spawn_installer(installer_path: &str, relaunch: bool, show_progress: bool) -> Result<(), String> {
     use std::process::Command;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let installer_args = if show_progress { "/P /UPDATE" } else { "/S" };
 
     let relaunch_line = if relaunch {
         let current_exe = std::env::current_exe()
@@ -665,9 +673,10 @@ fn spawn_installer(installer_path: &str, relaunch: bool) -> Result<(), String> {
     let script = format!(
         "@echo off\r\n\
          ping -n 2 127.0.0.1 >nul\r\n\
-         start /wait \"\" \"{installer}\" /S\r\n\
+         start /wait \"\" \"{installer}\" {args}\r\n\
          {relaunch}del \"%~f0\"\r\n",
         installer = installer_path,
+        args = installer_args,
         relaunch = relaunch_line,
     );
     let script_path = std::env::temp_dir().join("sayit-update-relaunch.bat");
@@ -695,8 +704,10 @@ fn sh_quote(value: &str) -> String {
 /// 最坏也只是留下一个 `.sayit-new`/`.sayit-old` 目录，而不是一个被删掉一半的 SayIt。
 /// `/Applications` 没有写权限（非管理员账户）时替换会失败，此时在 Finder 里选中更新包，
 /// 让用户手动拖进去。
+///
+/// show_progress 在 mac 上不用：替换 .app 只要一两秒，没有安装程序窗口可显示。
 #[cfg(target_os = "macos")]
-fn spawn_installer(installer_path: &str, relaunch: bool) -> Result<(), String> {
+fn spawn_installer(installer_path: &str, relaunch: bool, _show_progress: bool) -> Result<(), String> {
     let bundle = crate::platform::macos::permissions::current_bundle_path()
         .filter(|p| p.ends_with(".app"))
         .ok_or_else(|| "SayIt is not running from an .app bundle".to_string())?;
@@ -780,7 +791,7 @@ pub fn install_downloaded_update(
         // 抢在 app.exit(0) 之前置位：那次退出同样会走 RunEvent::Exit，
         // 退出兜底安装必须让开，否则两个安装程序抢同一个 exe。
         INSTALLER_SPAWNED.store(true, Ordering::SeqCst);
-        if let Err(e) = spawn_installer(&file_path, relaunch) {
+        if let Err(e) = spawn_installer(&file_path, relaunch, true) {
             INSTALLER_SPAWNED.store(false, Ordering::SeqCst);
             return Err(e);
         }
@@ -793,9 +804,88 @@ pub fn install_downloaded_update(
         return Err("Automatic installation is not supported on this platform".to_string());
     }
 
+    // Windows：等安装窗口出现了再退出，见 exit_when_installer_window_shows。
+    #[cfg(target_os = "windows")]
+    {
+        let installer = file_path.clone();
+        std::thread::spawn(move || exit_when_installer_window_shows(&app, &installer));
+        return Ok(());
+    }
+
     // 退出当前应用，让安装程序能够覆盖 exe 文件
+    #[cfg(not(target_os = "windows"))]
+    {
+        app.exit(0);
+        Ok(())
+    }
+}
+
+/// 最多等这么久。超时也退出：安装程序要等 SayIt 退出才能覆盖 exe，不能一直等下去。
+#[cfg(target_os = "windows")]
+const INSTALLER_WINDOW_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// 等安装程序的进度窗口出现再退出 SayIt。
+///
+/// 原来是拉起看门人后立刻退出。实测（dev-scripts/test-update-installer-window.ps1）从 SayIt
+/// 消失到安装窗口出现要 7.5 秒，这段时间屏幕上什么都没有。安装包本身的启动就要这么久
+/// （看门人脚本只主动等了 1 秒），所以让 SayIt 留在屏幕上、按钮显示「更新中…」，
+/// 撑到安装窗口接手。
+///
+/// 安装程序的模板在窗口出现后约 0.1 秒就检查 sayit.exe、还在就直接结束它，我们 150ms 轮询一次
+/// 根本赶不上（2026-11-18 实测被强杀，退出码 1）。所以安装包里加了 NSIS 钩子
+/// （src-tauri/windows/installer-hooks.nsh）：更新模式下先等 SayIt 自己退出，最多 5 秒。
+/// 运行的是新版本的安装包，所以只要新版本带着这个钩子就生效。
+#[cfg(target_os = "windows")]
+fn exit_when_installer_window_shows(app: &AppHandle, installer_path: &str) {
+    let started = std::time::Instant::now();
+    let seen = loop {
+        if installer_window_visible(installer_path) {
+            break true;
+        }
+        if started.elapsed() >= INSTALLER_WINDOW_WAIT {
+            break false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    };
+    write_log_line(&format!(
+        "[update] installer window {} after {}ms; exiting",
+        if seen { "shown" } else { "not seen" },
+        started.elapsed().as_millis(),
+    ));
     app.exit(0);
-    Ok(())
+}
+
+/// 有没有可见的顶层窗口属于 `installer_path` 这个 exe。
+#[cfg(target_os = "windows")]
+fn installer_window_visible(installer_path: &str) -> bool {
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible};
+
+    unsafe extern "system" fn collect_pid(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let pids = &mut *(lparam.0 as *mut Vec<u32>);
+        if IsWindowVisible(hwnd).as_bool() {
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            if pid != 0 && !pids.contains(&pid) {
+                pids.push(pid);
+            }
+        }
+        BOOL(1)
+    }
+
+    let mut pids: Vec<u32> = Vec::new();
+    unsafe {
+        let _ = EnumWindows(Some(collect_pid), LPARAM(&mut pids as *mut Vec<u32> as isize));
+    }
+    pids.iter()
+        .any(|pid| same_windows_path(&crate::context::get_process_path(*pid), installer_path))
+}
+
+/// Windows 路径不分大小写；`\\?\` 前缀在调用方已经去掉，这里再兜一次。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn same_windows_path(a: &str, b: &str) -> bool {
+    let norm = |p: &str| p.trim_start_matches(r"\\?\").replace('/', "\\").to_lowercase();
+    !a.is_empty() && norm(a) == norm(b)
 }
 
 /// 退出时的兜底安装，由 main.rs 的 RunEvent::Exit 调用。
@@ -847,7 +937,7 @@ pub fn install_pending_update_on_exit(app: &AppHandle) {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         // relaunch=true：装完把应用拉回来并跳到关于页。见本函数上方注释里的取舍说明。
-        match spawn_installer(&file_path, true) {
+        match spawn_installer(&file_path, true, false) {
             Ok(()) => write_log_line("[update] pending update is being installed on exit (will relaunch)"),
             Err(e) => write_log_line(&format!("[update] exit-path install failed: {}", e)),
         }
@@ -1001,6 +1091,44 @@ pub fn open_folder(folder_path: String) -> Result<(), String> {
 #[cfg(test)]
 mod update_path_tests {
     use super::*;
+
+    /// 进程路径来自 QueryFullProcessImageNameW，安装包路径来自存储并去掉了 `\\?\`，
+    /// 两边的大小写和前缀可能不同；比不上就会白等 30 秒才退出。
+    #[test]
+    fn installer_window_path_match_ignores_case_and_verbatim_prefix() {
+        let stored = r"C:\Users\a\AppData\Local\com.sayit.app\updates\SayIt_0.2.7_x64-setup.exe";
+        assert!(same_windows_path(r"c:\users\a\appdata\local\com.sayit.app\updates\SayIt_0.2.7_x64-setup.exe", stored));
+        assert!(same_windows_path(r"\\?\C:\Users\a\AppData\Local\com.sayit.app\updates\SayIt_0.2.7_x64-setup.exe", stored));
+        assert!(!same_windows_path(r"C:\Users\a\AppData\Local\SayIt\sayit.exe", stored));
+        // 取不到路径（没权限、进程已退出）时是空串，绝不能当成匹配
+        assert!(!same_windows_path("", stored));
+    }
+
+    /// 用真实安装包验证能认出它的窗口。不带参数启动只会停在欢迎页，什么都不装，测完结束它。
+    /// 手动跑：设 SAYIT_TEST_INSTALLER=<setup.exe 绝对路径>，
+    /// `cargo test --bins installer_window_detection_live -- --ignored`
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore]
+    fn installer_window_detection_live() {
+        let path = std::env::var("SAYIT_TEST_INSTALLER").expect("set SAYIT_TEST_INSTALLER");
+        assert!(!installer_window_visible(&path), "installer already running");
+        let mut child = std::process::Command::new(&path).spawn().unwrap();
+        let started = std::time::Instant::now();
+        let mut seen = false;
+        while started.elapsed() < std::time::Duration::from_secs(30) {
+            if installer_window_visible(&path) {
+                seen = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+        let waited = started.elapsed().as_millis();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(seen, "installer window not detected within 30s");
+        println!("installer window detected after {}ms", waited);
+    }
 
     #[test]
     fn installer_name_comes_from_the_last_path_segment_only() {

@@ -7,7 +7,7 @@ use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::commands::system::write_log_line;
-use crate::context::{capture_foreground_monitor, MonitorBounds};
+use crate::context::{capture_cursor_monitor, capture_foreground_monitor, MonitorBounds};
 
 const OVERLAY_DEFAULT_BASE_WIDTH: f64 = 360.0;
 // 64 而不是刚好够用的 56：内容是底边锚定的（根节点 items-end + pb-4），加高只是在胶囊
@@ -583,7 +583,9 @@ impl WindowState {
     }
 
     fn capture_overlay_monitor(&self) {
-        let monitor = capture_foreground_monitor();
+        // 指针优先：显示期间也按指针跟随（follow_cursor_monitor），开头若按前台窗口放，
+        // 指针在另一块屏时悬浮窗会先出现在这边、0.4 秒后再跳过去。
+        let monitor = capture_cursor_monitor().or_else(capture_foreground_monitor);
         if let Some(value) = &monitor {
             write_log_line(&format!(
                 "[overlay-position] target_monitor source={} work=({},{},{},{})",
@@ -591,6 +593,48 @@ impl WindowState {
             ));
         }
         *self.overlay_monitor.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = monitor;
+    }
+
+    /// 悬浮窗显示期间指针换到另一块显示器，就把悬浮窗挪过去。
+    ///
+    /// 卡片类布局（兜底卡、失败卡、随便问的答案卡）不跟：用户要把指针移过去点它，
+    /// 或者一边看答案一边去另一块屏干活，卡片跟着跑反而够不着、看不到。
+    fn follow_cursor_monitor(&self, app: &AppHandle, show_id: u64) {
+        let Some(cursor) = capture_cursor_monitor() else { return; };
+        let same_monitor = self
+            .overlay_monitor
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .is_some_and(|current| same_work_area(current, &cursor));
+        if same_monitor {
+            return;
+        }
+
+        let _lifecycle_guard = self.overlay_lifecycle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !self.is_showing(show_id) {
+            return;
+        }
+        let layout = self.overlay_layout.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        if layout.is_interactive() {
+            return;
+        }
+        let Some(overlay) = app.get_webview_window("overlay") else { return; };
+
+        write_log_line(&format!(
+            "[overlay-position] follow cursor show_id={} layout={:?} work=({},{},{},{})",
+            show_id, layout, cursor.left, cursor.top, cursor.right, cursor.bottom,
+        ));
+        *self.overlay_monitor.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(cursor);
+        // 设两遍：跨到缩放不同的显示器时，第一遍 set_position 会触发 WM_DPICHANGED，
+        // 窗口按系统建议的矩形被改过一次尺寸/位置；第二遍在新缩放下把它摆回底部居中。
+        // 两遍算出的是同一个矩形，同缩放的屏之间第二遍是空操作。
+        self.apply_native_layout(app, &overlay, &layout);
+        let error = self.apply_native_layout(app, &overlay, &layout);
+        if let Some(error) = error {
+            write_log_line(&format!("[overlay-position] follow cursor FAILED error={}", error));
+        }
+        reassert_overlay_topmost(app);
     }
 
     fn apply_payload_layout(&self, data: &Value) {
@@ -1117,6 +1161,8 @@ fn spawn_topmost_keeper(app: AppHandle, show_id: u64) {
                 if !state.is_showing(show_id) {
                     return;
                 }
+                // 跟随指针换屏也放在这个 400ms 循环里，省一条线程。mac 上取不到指针，直接返回。
+                state.follow_cursor_monitor(&app, show_id);
                 reassert_overlay_topmost(&app);
             }
         });
@@ -1353,10 +1399,25 @@ mod reload_limit_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_overlay_failure, overlay_bounds_in_work_area, OverlayLayout, WindowState,
-        OVERLAY_BASE_HEIGHT, OVERLAY_DEFAULT_BASE_WIDTH, OVERLAY_ROOT_PADDING_BOTTOM,
+        classify_overlay_failure, overlay_bounds_in_work_area, same_work_area, OverlayLayout,
+        WindowState, OVERLAY_BASE_HEIGHT, OVERLAY_DEFAULT_BASE_WIDTH, OVERLAY_ROOT_PADDING_BOTTOM,
     };
+    use crate::context::MonitorBounds;
     use serde_json::json;
+
+    /// 开头按前台窗口取、之后按指针取，同一块屏不能被当成换屏（否则每 0.4 秒挪一次窗）；
+    /// 换了屏必须认出来。
+    #[test]
+    fn same_monitor_ignores_capture_source() {
+        let bounds = |left, top, right, bottom, source: &str| MonitorBounds {
+            left, top, right, bottom, source: source.to_string(),
+        };
+        let main_fg = bounds(0, 0, 3840, 2088, "foreground_window");
+        let main_cursor = bounds(0, 0, 3840, 2088, "cursor");
+        let side_cursor = bounds(3840, 182, 6400, 1574, "cursor");
+        assert!(same_work_area(&main_fg, &main_cursor));
+        assert!(!same_work_area(&main_cursor, &side_cursor));
+    }
 
     /// 2560x1440 @150%，任务栏占掉底部 122px —— 报「胶囊顶部被裁」那台机器的实际布局。
     const WORK: (i64, i64, i64, i64) = (0, 0, 2560, 1318);
@@ -1868,7 +1929,13 @@ fn visible_area_for_frame(
     areas.iter().find(|area| close(area.frame, frame)).map(|area| area.visible)
 }
 
-/// 在录音开始时的前台窗口所在显示器底部居中放置。
+/// 两次取到的是不是同一块显示器。只比工作区矩形，不比 source：
+/// 开头按前台窗口取、之后按指针取，同一块屏的 source 不同但不该触发挪窗。
+fn same_work_area(a: &MonitorBounds, b: &MonitorBounds) -> bool {
+    a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom
+}
+
+/// 在指针（取不到时退回前台窗口）所在显示器底部居中放置。
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn calc_monitor_overlay_bounds(
     app: &AppHandle,

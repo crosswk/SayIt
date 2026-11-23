@@ -226,7 +226,139 @@ pub(super) enum ChatHttpError {
     ReadBody(reqwest::Error),
 }
 
+/// 请求体要为这个端点做的参数改写。新模型逐步收紧了老参数，改写都是「被拒绝过才做」。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ParamFixes {
+    /// `max_tokens` 改名 `max_completion_tokens`。OpenAI 新模型（GPT-5 起的推理型）只认后者：
+    /// `Unsupported parameter: 'max_tokens' is not supported with this model`（issue #96）。
+    max_completion_tokens: bool,
+    /// 不发 `temperature`。同一批模型只接受默认值 1，传别的就 400。
+    drop_temperature: bool,
+}
+
+/// 记住每个端点 + 模型需要哪些改写。与 thinking_memo 同理：只放内存，端点行为会随升级变。
+fn param_memo() -> &'static Mutex<HashMap<String, ParamFixes>> {
+    static MEMO: OnceLock<Mutex<HashMap<String, ParamFixes>>> = OnceLock::new();
+    MEMO.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 第一次请求用哪套。OpenAI 官方 / Azure 直接用 `max_completion_tokens`：它们所有对话模型
+/// 都认这个名字，先发老名字只会让新模型多吃一次 400。`temperature` 不预先去掉，
+/// 老模型（gpt-4o 一类）去掉会变成默认的 1，整理结果更飘。
+fn initial_param_fixes(config: &AiProviderConfig) -> ParamFixes {
+    if let Some(fixes) = param_memo()
+        .lock()
+        .ok()
+        .and_then(|memo| memo.get(&endpoint_key(config)).copied())
+    {
+        return fixes;
+    }
+    ParamFixes {
+        max_completion_tokens: is_strict_openai_host(&config.api_url),
+        drop_temperature: false,
+    }
+}
+
+fn apply_param_fixes(body: &serde_json::Value, fixes: ParamFixes) -> serde_json::Value {
+    let mut body = body.clone();
+    if let Some(object) = body.as_object_mut() {
+        if fixes.max_completion_tokens {
+            if let Some(value) = object.remove("max_tokens") {
+                object.entry("max_completion_tokens").or_insert(value);
+            }
+        } else if let Some(value) = object.remove("max_completion_tokens") {
+            object.entry("max_tokens").or_insert(value);
+        }
+        if fixes.drop_temperature {
+            object.remove("temperature");
+        }
+    }
+    body
+}
+
+/// 报错是不是在说我们发的某个参数不被支持；是的话返回改好的那套，否则 `None`。
+///
+/// 和 rejected_thinking_field 一样保守：报错里必须点名**这次真的发了的**参数，
+/// 还得带「不支持」这类字眼，密钥错、模型不存在这些 400 才不会被白重试。
+/// 反方向也要认：老网关（Azure 旧 api-version、一些中转）不认 `max_completion_tokens`。
+fn param_fix_for_error(error_body: &str, sent: &serde_json::Value, fixes: ParamFixes) -> Option<ParamFixes> {
+    let lower = error_body.to_ascii_lowercase();
+    let rejects = ["unsupported", "not supported", "unrecognized", "unknown parameter", "not allowed", "extra inputs"]
+        .iter()
+        .any(|word| lower.contains(word));
+    if !rejects {
+        return None;
+    }
+    let sent_has = |key: &str| sent.get(key).is_some();
+    // 先看 max_completion_tokens：它的名字里不含 "max_tokens"，两个判断不会互相串
+    if sent_has("max_completion_tokens") && lower.contains("max_completion_tokens") {
+        return Some(ParamFixes { max_completion_tokens: false, ..fixes });
+    }
+    if sent_has("max_tokens") && lower.contains("max_tokens") {
+        return Some(ParamFixes { max_completion_tokens: true, ..fixes });
+    }
+    if sent_has("temperature") && lower.contains("temperature") {
+        return Some(ParamFixes { drop_temperature: true, ..fixes });
+    }
+    None
+}
+
+/// 发一次请求，碰到「参数不支持」就按报错改写后重发，最多改两轮（token 名 + temperature）。
 async fn send_chat_once(
+    url: &str,
+    config: &AiProviderConfig,
+    body: &serde_json::Value,
+    timeout: Duration,
+) -> Result<ChatHttpResponse, ChatHttpError> {
+    let mut fixes = initial_param_fixes(config);
+    let mut adjusted = false;
+    for attempt in 0..3 {
+        let sent = apply_param_fixes(body, fixes);
+        let resp = send_chat_raw(url, config, &sent, timeout).await?;
+        if resp.status.is_success() {
+            // 只记成功过的结论，理由同 remember_thinking
+            if adjusted {
+                if let Ok(mut memo) = param_memo().lock() {
+                    memo.insert(endpoint_key(config), fixes);
+                }
+            }
+            return Ok(resp);
+        }
+        let next = match param_fix_for_error(&resp.body, &sent, fixes) {
+            Some(next) if next != fixes && attempt < 2 => next,
+            _ => return Ok(resp),
+        };
+        diag::log(
+            SCOPE,
+            "params_rejected",
+            &format!(
+                "Endpoint rejected a request parameter; retrying status={} model={} from={:?} to={:?}",
+                resp.status.as_u16(),
+                config.model,
+                fixes,
+                next
+            ),
+        );
+        fixes = next;
+        adjusted = true;
+    }
+    unreachable!("the loop returns on its last attempt")
+}
+
+/// OpenCode Go 的地址。它要求每个请求带会话 ID（`x-opencode-session`），缺了直接
+/// 400 `MissingSessionID`（issue #96）。
+fn is_opencode_host(api_url: &str) -> bool {
+    host_of(api_url).is_some_and(|host| host == "opencode.ai" || host.ends_with(".opencode.ai"))
+}
+
+/// 本次运行固定不变的会话 ID。OpenCode 用它做路由和提示词缓存，文档要求「每个会话稳定」；
+/// SayIt 每次整理都是独立请求，没有会话概念，进程内固定一个最贴近，也让同一系统提示词能命中缓存。
+fn opencode_session_id() -> &'static str {
+    static ID: OnceLock<String> = OnceLock::new();
+    ID.get_or_init(|| format!("sayit-{}", uuid::Uuid::new_v4()))
+}
+
+async fn send_chat_raw(
     url: &str,
     config: &AiProviderConfig,
     body: &serde_json::Value,
@@ -239,6 +371,9 @@ async fn send_chat_once(
     // 小米 MiMo 规范鉴权头为 api-key（同时兼容 Bearer），两个都带最稳妥
     if config.provider == "mimo" {
         req = req.header("api-key", config.api_key.clone());
+    }
+    if is_opencode_host(&config.api_url) {
+        req = req.header("x-opencode-session", opencode_session_id());
     }
 
     let resp = req
@@ -728,6 +863,60 @@ mod tests {
             .unwrap_or_default();
         out.sort();
         out
+    }
+
+    /// issue #96：OpenAI 新模型拒收 max_tokens 和非默认 temperature。报错原文取自 issue 和 OpenAI。
+    #[test]
+    fn rejected_params_are_rewritten_one_at_a_time() {
+        let body = serde_json::json!({ "model": "m", "temperature": 0.2, "max_tokens": 1024, "messages": [] });
+        let start = ParamFixes::default();
+
+        let max_tokens_err = r#"{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.","type":"invalid_request_error","param":"max_tokens","code":"unsupported_parameter"}}"#;
+        let step1 = param_fix_for_error(max_tokens_err, &apply_param_fixes(&body, start), start).unwrap();
+        assert_eq!(step1, ParamFixes { max_completion_tokens: true, drop_temperature: false });
+        let sent1 = apply_param_fixes(&body, step1);
+        assert_eq!(sent1["max_completion_tokens"], 1024);
+        assert!(sent1.get("max_tokens").is_none());
+
+        let temperature_err = r#"{"error":{"message":"Unsupported value: 'temperature' does not support 0.2 with this model. Only the default (1) value is supported.","param":"temperature","code":"unsupported_value"}}"#;
+        let step2 = param_fix_for_error(temperature_err, &sent1, step1).unwrap();
+        assert_eq!(step2, ParamFixes { max_completion_tokens: true, drop_temperature: true });
+        assert!(apply_param_fixes(&body, step2).get("temperature").is_none());
+
+        // 反方向：老网关不认新名字
+        let old_gateway = r#"{"error":{"message":"Unrecognized request argument supplied: max_completion_tokens"}}"#;
+        assert_eq!(
+            param_fix_for_error(old_gateway, &sent1, step1),
+            Some(ParamFixes { max_completion_tokens: false, drop_temperature: false })
+        );
+    }
+
+    /// 与参数无关的 400 不能触发重试，否则密钥错、模型不存在都要白发几遍
+    #[test]
+    fn unrelated_errors_do_not_rewrite_params() {
+        let body = serde_json::json!({ "model": "m", "temperature": 0.2, "max_tokens": 1024 });
+        let none = ParamFixes::default();
+        for err in [
+            r#"{"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}"#,
+            r#"{"error":{"message":"The model `gpt-9` does not exist"}}"#,
+            // 下限报错（pitfalls 18）是「值太小」，不是「参数不支持」
+            r#"{"error":{"message":"integer_below_min_value: max_tokens Expected a value >= 16"}}"#,
+        ] {
+            assert_eq!(param_fix_for_error(err, &body, none), None, "{}", err);
+        }
+    }
+
+    #[test]
+    fn openai_official_starts_with_max_completion_tokens_and_opencode_gets_session_header_host() {
+        let openai = config("openai_compat", "https://api.openai.com/v1", "gpt-6.2-sol-test");
+        assert!(initial_param_fixes(&openai).max_completion_tokens);
+        let gateway = config("openai_compat", "https://my-gateway.example.com/v1", "gpt-6.2-sol-test");
+        assert!(!initial_param_fixes(&gateway).max_completion_tokens);
+
+        assert!(is_opencode_host("https://opencode.ai/inference/go/openai/v1"));
+        assert!(!is_opencode_host("https://notopencode.ai/v1"));
+        assert!(opencode_session_id().starts_with("sayit-"));
+        assert_eq!(opencode_session_id(), opencode_session_id());
     }
 
     #[test]
