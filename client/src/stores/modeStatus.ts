@@ -73,6 +73,7 @@ function cloudProviderShort(provider: string): string {
     case 'openai_live_transcribe': return 'OpenAI Live'
     case 'gemini_transcribe': return 'Gemini'
     case 'gemini_live_transcribe': return 'Gemini Live'
+    case 'xai_stt': return 'xAI'
     case 'openrouter_transcribe': return 'OpenRouter'
     default: return provider
   }

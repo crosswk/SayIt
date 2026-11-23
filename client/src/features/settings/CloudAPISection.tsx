@@ -923,6 +923,9 @@ export default function CloudAPISection() {
             {draftPlatform === 'deepseek' && draft.apiKey.trim() && !/^sk-/.test(draft.apiKey.trim()) && (
               <FormatHint text={t('asr.hint.deepseekKey')} />
             )}
+            {draftPlatform === 'xai' && draft.apiKey.trim() && !/^xai-/.test(draft.apiKey.trim()) && (
+              <FormatHint text={t('asr.hint.xaiKey')} />
+            )}
             {/* 密钥不是凭空出现的：说一句它从哪来，免得用户以为自己看错了 */}
             {draftKeyInherited && (
               <p className="mt-1 text-[11px] text-muted-foreground">

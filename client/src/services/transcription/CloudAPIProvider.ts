@@ -78,6 +78,7 @@ interface StreamCommandSet {
  *   · qwen_audio_stream       → DashScope duplex run-task（/api-ws/v1/inference）
  *   · openai_live_transcribe  → OpenAI Realtime 转写会话（/v1/realtime?intent=transcription）
  *   · gemini_live_transcribe  → Gemini Live API（BidiGenerateContent）
+ *   · xai_stt                 → xAI 流式 STT（wss://api.x.ai/v1/stt，二进制 PCM 帧）
  *
  * 这里只记住本次会话用的是哪一组，收尾时才不会去 finish 一条没开的会话。
  *
@@ -121,6 +122,13 @@ const STREAM_COMMANDS: Record<string, StreamCommandSet> = {
     send: 'gemini_live_send',
     finish: 'gemini_live_finish',
     close: 'gemini_live_close',
+    needsModel: true,
+  },
+  xai_stt: {
+    open: 'xai_live_open',
+    send: 'xai_live_send',
+    finish: 'xai_live_finish',
+    close: 'xai_live_close',
     needsModel: true,
   },
 }

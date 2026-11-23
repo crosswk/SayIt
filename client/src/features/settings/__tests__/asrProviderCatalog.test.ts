@@ -72,6 +72,8 @@ describe('ASR_PROVIDERS 结构性不变量', () => {
       'deepseek_asr',
       'groq_whisper', 'openai_transcribe', 'openai_live_transcribe',
       'gemini_transcribe', 'gemini_live_transcribe', 'openrouter_transcribe',
+      // xAI /v1/stt：REST 与 WebSocket 都在 asr_xai.rs
+      'xai_stt',
       // chat/completions + input_audio 那一套（asr_openai_chat_audio.rs）
       'qwen_chat_audio', 'openai_chat_audio', 'openai_chat_audio_standard',
       // /audio/transcriptions、地址由用户填（asr_groq.rs 的 OPENAI_COMPAT 档）
@@ -344,6 +346,8 @@ describe('ASR_PROVIDERS 结构性不变量', () => {
     const websocketProviders = new Set([
       'doubao_v2', 'qwen_audio_stream', 'qwen_realtime', 'qwen_omni',
       'openai_live_transcribe', 'gemini_live_transcribe',
+      // REST 与 WebSocket 共用这一个键；它的 REST 格式是自家的，中转站不转发，也不给改
+      'xai_stt',
     ])
     for (const entry of ASR_PROVIDERS) {
       for (const model of asrModelsOf(entry)) {

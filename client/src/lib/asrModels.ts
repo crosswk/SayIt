@@ -70,6 +70,7 @@ const ASR_DISPLAY_MODEL_MAP: Record<string, string> = {
   gemini_transcribe: 'gemini-3.5-transcribe',
   gemini_live_transcribe: 'gemini-3.5-transcribe-live',
   openrouter_transcribe: 'openai/gpt-transcribe',
+  xai_stt: 'grok-voice-transcribe-2.0',
   ...QWEN_OMNI_MODEL_MAP,
 }
 
@@ -156,6 +157,7 @@ const STREAMING_CAPABLE = new Set([
   'qwen_audio_stream',
   'openai_live_transcribe',
   'gemini_live_transcribe',
+  'xai_stt',
 ])
 
 export function isStreamingDisplayCapable(provider: string): boolean {
@@ -173,7 +175,7 @@ export function isStreamingDisplayCapable(provider: string): boolean {
  *   **都不需要 WorkspaceId** —— 通用域名 dashscope.aliyuncs.com 实测可用，
  *   别照抄下面那条的前置条件（见 providers/asr_qwen_audio_stream.rs 文件头的实测记录）。
  * - qwen_realtime（qwen3-asr-flash-realtime）：走地域专属实时端点，必须提供北京业务空间 WorkspaceId 才可用。
- * - openai_live_transcribe / gemini_live_transcribe：填了密钥就能用，没有额外前置条件。
+ * - openai_live_transcribe / gemini_live_transcribe / xai_stt：填了密钥就能用，没有额外前置条件。
  * - qwen（qwen3-asr-flash）：非实时模型，不支持实时字幕。
  */
 export function isStreamingDisplayReady(provider: string, qwenWorkspaceId?: string): boolean {

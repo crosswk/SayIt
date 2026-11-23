@@ -21,7 +21,7 @@ import {
 import { t } from '@/i18n'
 
 export type AsrPlatform =
-  | 'doubao' | 'qwen' | 'mimo' | 'deepseek' | 'groq' | 'openai' | 'google' | 'openrouter'
+  | 'doubao' | 'qwen' | 'mimo' | 'deepseek' | 'groq' | 'openai' | 'google' | 'openrouter' | 'xai'
   // 这个不是「一家服务商」，而是「一类协议」：地址由用户填，对面是谁我们不知道。
   | 'openai_compat'
 
@@ -45,6 +45,7 @@ export const ASR_PLATFORMS: Record<AsrPlatform, AsrPlatformInfo> = {
   // （项目 + 服务账号 + OAuth）我们刻意没接，见 providers/asr_gemini.rs 的文件头。
   google: { label: 'Google Gemini', consoleUrl: 'https://aistudio.google.com/apikey' },
   openrouter: { label: 'OpenRouter', consoleUrl: 'https://openrouter.ai/keys' },
+  xai: { label: 'xAI', consoleUrl: 'https://console.x.ai/team/default/api-keys' },
   // consoleUrl 指向协议文档而不是某家控制台 —— 密钥去哪儿领取决于用户对接的是谁，
   // 我们给不出那个链接，能给的是「这条协议长什么样」。
   openai_compat: {
@@ -516,6 +517,21 @@ export const ASR_PROVIDERS: AsrProviderEntry[] = [
     models: OPENROUTER_MODELS,
   },
   /**
+   * xAI 的 `/v1/stt`（issue #99），实现在 providers/asr_xai.rs。
+   *
+   * 和 OpenAI / Gemini 不同，同一个模型就能走两条路（REST 与 WebSocket），所以只有
+   * 一个选项、一个运行时键：实时字幕开着走 WebSocket，关着走 REST。
+   * 不标 supportsCustomUrl：它的请求格式是自家的，中转站不会照这个转发。
+   */
+  {
+    id: 'xai',
+    get label() { return t('asrProvider.xai') },
+    platform: 'xai',
+    availability: 'global',
+    get blurb() { return t('asrProvider.xaiBlurb') },
+    models: [{ id: 'grok-voice-transcribe-2.0', provider: 'xai_stt', streaming: true }],
+  },
+  /**
    * ── 「协议卡」：不是某一家服务商，而是「内置清单里没有你要的那家」时用的 ──
    *
    * 起因是 issue #67：内置清单穷举不完，而自建服务（whisper.cpp / faster-whisper /
@@ -603,6 +619,8 @@ const LEGACY_PROVIDERS: Record<string, { provider: string; model: string }> = {
   gemini_transcribe: { provider: 'google', model: 'gemini-3.5-transcribe' },
   gemini_live_transcribe: { provider: 'google', model: 'gemini-3.5-transcribe-live' },
   openrouter_transcribe: { provider: 'openrouter', model: 'openai/gpt-transcribe' },
+  // 同 deepseek_asr：只是运行时键，放进来让「按运行时键找卡」认得出
+  xai_stt: { provider: 'xai', model: 'grok-voice-transcribe-2.0' },
   // 协议卡合并前的两个 id。合并后都落到同一张卡上，模型名由用户自己填过，
   // 这里只给个兜底值 —— 真实值在 profile.model 里，迁移不会动它。
   // 协议交给 auto 重新探测：原来分成两张卡的时候，卡片 id 本身就是协议，

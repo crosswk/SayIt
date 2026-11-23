@@ -156,6 +156,7 @@ pub const ALL_ASR_PROVIDERS: &[&str] = &[
     "gemini_transcribe",
     "gemini_live_transcribe",
     "openrouter_transcribe",
+    "xai_stt",
 ];
 
 /// 千问 Audio 3.0 与 OpenAI Realtime 各自的客户端条数上限。
@@ -173,6 +174,8 @@ const OPENAI_KEYWORD_CAP: usize = 100;
 /// （没声明就没有那行字），又够不到 `HOTWORD_SOFT_LIMIT`（200）那条通用提醒。
 /// Gemini Live 关掉实时字幕回落到文件转写时是同一条路。
 const GEMINI_PROMPT_CAP: usize = 100;
+/// xAI 的 keyterm 上限（文档：最多 100 条、每条不超过 50 个字符），两条路径相同。
+const XAI_KEYTERM_CAP: usize = 100;
 
 /// 一次性路径（`registry.rs::cloud_transcribe`）上的热词行为。
 ///
@@ -217,6 +220,9 @@ fn buffered_delivery(provider: &str, extra: &Value) -> HotwordDelivery {
         // 依据是官方文档 + `build_body` 里确实没有可用字段；**这家整体没有真接口验证过**
         // （见 asr_openrouter.rs 文件头「未经真实接口验证」，我们没有 OpenRouter key）。
         "openrouter_transcribe" => HotwordDelivery::ProtocolHasNoSlot,
+        // asr_xai::transcribe → 重复的 `keyterm` 表单字段（专门的热词偏置字段）。
+        // 和 openrouter 一样**没有真接口验证过**（没有 xAI key）。
+        "xai_stt" => HotwordDelivery::Vocabulary,
         // 「OpenAI 兼容」那张卡：协议决定有没有热词。用户显式指定过就能确定，
         // auto 要等探测（结果在 asr_openai_compat 的 PROTOCOL_CACHE 里）。
         "openai_compat" => match extra.get("protocol").and_then(Value::as_str) {
@@ -261,6 +267,8 @@ fn streaming_delivery(provider: &str) -> Option<HotwordDelivery> {
         // `inputAudioTranscription` 是独立于对话生成的通道，systemInstruction 未必参与
         // 它的解码。要改分类**必须先用真实 key 实测**，不能照着"字段存在"就推断。
         "gemini_live_transcribe" => Some(HotwordDelivery::ProtocolHasNoSlot),
+        // asr_xai::ws_url → URL query 里重复的 `keyterm`
+        "xai_stt" => Some(HotwordDelivery::Vocabulary),
         _ => None,
     }
 }
@@ -282,6 +290,7 @@ fn client_cap(provider: &str, path_delivery: HotwordDelivery) -> Option<usize> {
         // 里它和 gemini_transcribe 并在同一个分支）。它流式那条路是
         // ProtocolHasNoSlot，上面的 reaches_asr 守卫会自己把上限挡掉。
         "gemini_transcribe" | "gemini_live_transcribe" => Some(GEMINI_PROMPT_CAP),
+        "xai_stt" => Some(XAI_KEYTERM_CAP),
         _ => None,
     }
 }
@@ -576,6 +585,7 @@ mod tests {
             GEMINI_PROMPT_CAP,
             crate::providers::asr_gemini::hotword_limit_for_docs(),
         );
+        assert_eq!(XAI_KEYTERM_CAP, crate::providers::asr_xai::KEYTERM_LIMIT);
     }
 
     /// 这份清单和 `registry.rs::cloud_transcribe` 实际认识的 key 必须是同一个集合。

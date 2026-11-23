@@ -956,6 +956,10 @@ fn main() {
             providers::asr_gemini_live::gemini_live_send,
             providers::asr_gemini_live::gemini_live_finish,
             providers::asr_gemini_live::gemini_live_close,
+            providers::asr_xai::xai_live_open,
+            providers::asr_xai::xai_live_send,
+            providers::asr_xai::xai_live_finish,
+            providers::asr_xai::xai_live_close,
             // Models (local model management)
             models::registry::list_available_models,
             models::registry::list_downloaded_models,

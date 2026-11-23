@@ -116,9 +116,10 @@ describe('流式实时字幕判据', () => {
   // isStreamingDisplayReady 是运行时**唯一**的闸门（CloudAPIProvider 拿它决定走不走
   // WebSocket）。光在服务目录里给一条加 streaming: true 是没有任何效果的 ——
   // 这组断言就是那份契约。
-  it('有流式实现的五家都就绪，一次性那几家一律不就绪', () => {
+  it('有流式实现的几家都就绪，一次性那几家一律不就绪', () => {
     for (const provider of [
       'doubao_v2', 'qwen_audio_stream', 'openai_live_transcribe', 'gemini_live_transcribe',
+      'xai_stt',
     ]) {
       expect(isStreamingDisplayCapable(provider)).toBe(true)
       expect(isStreamingDisplayReady(provider)).toBe(true)
