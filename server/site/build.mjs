@@ -1080,6 +1080,8 @@ function page(t) {
   <link rel="alternate" hreflang="zh-CN" href="${ORIGIN}/zh/">
   <link rel="alternate" hreflang="x-default" href="${ORIGIN}/">
   <meta name="robots" content="index, follow, max-image-preview:large">
+  <!-- 百度搜索资源平台的站点所有权验证，验证通过后也不能删，百度会定期复查。 -->
+  <meta name="baidu-site-verification" content="codeva-YmETaPjjFm">
   <meta name="theme-color" content="#ffffff">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="SayIt">
