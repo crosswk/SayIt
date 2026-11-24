@@ -6,7 +6,7 @@
 
 **Just say it, and write well**
 
-Open-source voice typing for Windows and macOS. Press a shortcut and speak—SayIt transcribes, cleans up, and inserts polished text wherever your cursor is.
+Free, open-source voice typing for Windows and macOS, and an alternative to Wispr Flow and Typeless: no account, no subscription. Press a shortcut and speak—SayIt transcribes, cleans up, and inserts polished text wherever your cursor is.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
 [![Platform: Windows | macOS](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-0078D6)](https://github.com/crosswk/SayIt/releases/latest)
@@ -173,6 +173,37 @@ SayIt/
 ├── docs/         # User guides and images
 └── dev-docs/     # Internal development notes
 ```
+
+## How it compares to Wispr Flow and Typeless
+
+| | SayIt | Wispr Flow / Typeless |
+| --- | --- | --- |
+| Price | Free, no account | Subscription |
+| Source code | Open source (AGPL-3.0) | Closed |
+| Cleanup prompts | Fully editable, can switch per app | Not exposed |
+| Offline speech recognition | Yes, seven GGUF models | No |
+| Bring your own API keys | Yes, audio goes straight to your provider | No |
+| Run inside a company network | Yes, self-host the backend with Docker Compose | No |
+
+## FAQ
+
+**Is it free?**
+The app is free and open source, with no account. The default server mode uses the public trial server for speech recognition, also free. Server-side AI cleanup ends on November 30, 2026; for cleanup after that, add your own model under AI providers (DeepSeek, Qwen, OpenAI, Gemini, or a local Ollama) and turn on "Run AI cleanup locally" on the same page.
+
+**Does it replace my keyboard or input method?**
+No. SayIt runs on a global shortcut alongside whatever keyboard or IME you already use. Press Right Alt (Right ⌘ on a Mac) once to start and again to finish.
+
+**Does it work in Claude Code, Cursor, or a terminal?**
+Yes. Text is typed at the cursor, so IDEs, terminals, browsers, and chat apps all work. Dictating prompts to AI tools is the most common use.
+
+**Can it run offline?**
+In local mode speech recognition runs entirely on your computer with one of seven GGUF models, using the GPU when present. With AI cleanup off as well, nothing leaves the device.
+
+**Which systems are supported?**
+Windows 10 and 11 (x64), and macOS 14 or later on Apple silicon. There is no Intel Mac, Linux, or mobile version yet.
+
+**Can a company host it internally?**
+Yes. Deploy the backend with Docker Compose on an NVIDIA GPU (16 GB+ VRAM recommended) and audio and text stay inside your network. See [Self-hosting](#self-hosting) above.
 
 ## Community
 
