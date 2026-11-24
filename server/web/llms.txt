@@ -9,14 +9,17 @@ SayIt 是一款免费开源的语音输入法，支持 Windows 和 Mac：在任�
 - Platforms: Windows 10 and 11 (x64), and macOS 14 or later on Apple silicon (M1 or later). No Intel Mac, Linux or mobile version.
 - Price: free, no account, no subscription. Licensed under AGPL-3.0.
 - Not an input method: it runs on a global shortcut next to whatever keyboard or IME you already use.
-- Default shortcut: press Right Alt (Right ⌘ on a Mac) once to start and again to finish; hold-to-talk is on a separate shortcut (Right Ctrl on Windows, Right ⌥ on a Mac).
+- Default shortcut: press Right Alt (Right ⌘ on a Mac) once to start and again to finish. Hold-to-talk was removed in 0.2.6.
 - Common use: dictating prompts to AI coding tools such as Claude Code, Codex, Kiro and Cursor. It types at the cursor, so terminals, IDEs, browsers and chat apps all work.
 - AI cleanup removes filler words, follows self-corrections, formats spoken lists and fixes names and terms. Every prompt is editable, prompts can switch per app, and cleanup can be turned off.
 - Local mode: seven GGUF models (Parakeet Unified EN, SenseVoice Small, Fun-ASR Nano, Nemotron 3.5 ASR with 32 languages, three Qwen3-ASR sizes). About 9 s of speech is transcribed in under a second on a CPU; a GPU is used when present.
-- Cloud API mode: speech recognition with your own keys for Doubao, Qwen, OpenAI, Gemini, OpenRouter, Xiaomi MiMo, Groq Whisper or any OpenAI-compatible endpoint; audio goes straight to the provider.
+- Cloud API mode: speech recognition with your own keys for Doubao, Qwen, OpenAI, Gemini, xAI Grok, OpenRouter, Xiaomi MiMo, DeepSeek, Groq Whisper or any OpenAI-compatible endpoint; audio goes straight to the provider.
 - Cleanup prompts are fully editable: built-in styles (intent cleanup, faithful proofread, Chinese to English, conversational) can be changed, new ones written from scratch, and a different one picked automatically per app.
-- Server mode is the default and connects to the public trial server; teams can host their own with Docker Compose (FastAPI, WebSocket, Qwen3-ASR with vLLM, NVIDIA GPU with 16 GB+ VRAM recommended) so audio and text stay inside the company network.
+- Server mode is the default and connects to the public trial server for free speech recognition. Server-side AI cleanup ends on 2026-11-30; after that, cleanup uses a model you add yourself (DeepSeek, Qwen, OpenAI, Gemini, a local Ollama and others). Teams can host their own with Docker Compose (FastAPI, WebSocket, Qwen3-ASR with vLLM, NVIDIA GPU with 16 GB+ VRAM recommended) so audio and text stay inside the company network.
+- Voice translate (0.2.6): a separate shortcut; speak and the translation, in any of 50+ target languages, is typed at the cursor.
+- Ask anything (0.2.6): a separate shortcut; ask by voice and the answer appears in a card at the bottom of the screen instead of in the document. DeepSeek and similar models can search the web.
 - Other features: context-aware writing (off by default), speak to edit a selection, hotwords, live captions in the overlay, searchable local history with re-transcribe.
+- Alternatives it is often compared with: Wispr Flow, Typeless and Superwhisper (all closed source and paid).
 - App interface languages: English and Simplified Chinese.
 - Server benchmark (Qwen3-ASR-1.7B + vLLM, NVIDIA A10G 24 GB): 30 s audio ~0.8 s, 1 min ~1.6 s, 5 min ~3.0 s.
 
